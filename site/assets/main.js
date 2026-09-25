@@ -49,6 +49,14 @@ function renderDownloadResult(container, lang, match, createElement) {
       const text = lang === 'ru' ? el.dataset.ru : el.dataset.en;
       if (text !== undefined) el.textContent = text;
     });
+    document.querySelectorAll('[data-src-ru]').forEach((el) => {
+      const src = lang === 'ru' ? el.dataset.srcRu : el.dataset.srcEn;
+      if (src) el.src = src;
+    });
+    document.querySelectorAll('[data-href-ru]').forEach((el) => {
+      const href = lang === 'ru' ? el.dataset.hrefRu : el.dataset.hrefEn;
+      if (href) el.href = href;
+    });
     document.documentElement.lang = lang;
     const toggle = document.getElementById('lang-toggle');
     if (toggle) toggle.textContent = lang === 'ru' ? 'EN' : 'RU';
