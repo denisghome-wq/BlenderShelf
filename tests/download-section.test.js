@@ -1,0 +1,39 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { renderDownloadResult } = require('../site/assets/main.js');
+
+function fakeContainer() {
+  const children = [];
+  return {
+    innerHTML: '',
+    appendChild(el) { children.push(el); },
+    get children() { return children; },
+  };
+}
+
+function fakeElement() {
+  return { textContent: '', className: '', href: '' };
+}
+
+test('renderDownloadResult shows an unavailable message when match is null', () => {
+  const container = fakeContainer();
+  renderDownloadResult(container, 'ru', null, fakeElement);
+  assert.equal(container.children.length, 1);
+  assert.match(container.children[0].textContent, /недоступен/);
+});
+
+test('renderDownloadResult shows a download link with the version number for an exact match', () => {
+  const container = fakeContainer();
+  const match = { exact: true, version: { addon_version: '0.1.0', url: 'https://example.com/x.zip' } };
+  renderDownloadResult(container, 'en', match, fakeElement);
+  assert.equal(container.children[0].href, 'https://example.com/x.zip');
+  assert.match(container.children[0].textContent, /0\.1\.0/);
+});
+
+test('renderDownloadResult adds a warning element for a non-exact match', () => {
+  const container = fakeContainer();
+  const match = { exact: false, version: { addon_version: '0.1.0', url: 'https://example.com/x.zip' } };
+  renderDownloadResult(container, 'ru', match, fakeElement);
+  assert.equal(container.children.length, 2);
+  assert.equal(container.children[1].className, 'warning');
+});
