@@ -1,3 +1,5 @@
+const LATEST_RELEASE_URL = 'https://github.com/denisghome-wq/BlenderShelf/releases/latest';
+
 function renderDownloadResult(container, lang, match, createElement) {
   const make = createElement || (typeof document !== 'undefined' ? document.createElement.bind(document) : null);
   container.innerHTML = '';
@@ -8,6 +10,12 @@ function renderDownloadResult(container, lang, match, createElement) {
       ? 'Список версий пока недоступен.'
       : 'Version list is currently unavailable.';
     container.appendChild(p);
+
+    const link = make('a');
+    link.href = LATEST_RELEASE_URL;
+    link.className = 'cta';
+    link.textContent = lang === 'ru' ? 'Скачать последнюю версию' : 'Download the latest release';
+    container.appendChild(link);
     return;
   }
 
@@ -71,7 +79,13 @@ function renderDownloadResult(container, lang, match, createElement) {
     applyLanguage(lang);
   }
 
-  async function initDownloadSection(lang) {
+  // Fetches versions.json exactly once and wires the <select> listener exactly
+  // once; renderForLanguage is stored so the language toggle can re-render
+  // the existing selection in the new language without re-fetching or
+  // re-registering listeners.
+  let renderForLanguage = null;
+
+  async function setupDownloadSection(initialLang) {
     const select = document.getElementById('blender-version-select');
     const result = document.getElementById('download-result');
     if (!select || !result) return;
@@ -85,33 +99,35 @@ function renderDownloadResult(container, lang, match, createElement) {
     });
 
     let versions = [];
+    let fetchFailed = false;
     try {
       const res = await fetch('versions.json');
       versions = await res.json();
     } catch (e) {
-      renderDownloadResult(result, lang, null);
-      return;
+      fetchFailed = true;
     }
 
-    function update() {
-      renderDownloadResult(result, lang, pickVersionForBlender(versions, select.value));
-    }
-    select.addEventListener('change', update);
-    update();
+    renderForLanguage = (lang) => {
+      const match = fetchFailed ? null : pickVersionForBlender(versions, select.value);
+      renderDownloadResult(result, lang, match);
+    };
+
+    select.addEventListener('change', () => renderForLanguage(currentLanguage()));
+    renderForLanguage(initialLang);
   }
 
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', () => {
       const lang = currentLanguage();
       applyLanguage(lang);
-      initDownloadSection(lang);
+      setupDownloadSection(lang);
 
       const toggle = document.getElementById('lang-toggle');
       if (toggle) {
         toggle.addEventListener('click', () => {
           const next = currentLanguage() === 'ru' ? 'en' : 'ru';
           setLanguage(next);
-          initDownloadSection(next);
+          if (renderForLanguage) renderForLanguage(next);
         });
       }
     });

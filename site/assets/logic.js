@@ -25,12 +25,10 @@ function pickVersionForBlender(versions, blenderVersion) {
     return { version: inRange[0], exact: true };
   }
 
-  const byDistance = [...versions].sort((a, b) => {
-    const da = Math.abs(compareVersions(blenderVersion, a.blender_min));
-    const db = Math.abs(compareVersions(blenderVersion, b.blender_min));
-    return da - db;
-  });
-  return { version: byDistance[0], exact: false };
+  const belowEverything = versions.every((v) => compareVersions(blenderVersion, v.blender_min) < 0);
+  const byMin = [...versions].sort((a, b) => compareVersions(a.blender_min, b.blender_min));
+  const fallback = belowEverything ? byMin[0] : byMin[byMin.length - 1];
+  return { version: fallback, exact: false };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

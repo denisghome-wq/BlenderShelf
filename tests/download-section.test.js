@@ -15,11 +15,12 @@ function fakeElement() {
   return { textContent: '', className: '', href: '' };
 }
 
-test('renderDownloadResult shows an unavailable message when match is null', () => {
+test('renderDownloadResult shows an unavailable message plus a direct link to the latest release when match is null', () => {
   const container = fakeContainer();
   renderDownloadResult(container, 'ru', null, fakeElement);
-  assert.equal(container.children.length, 1);
+  assert.equal(container.children.length, 2);
   assert.match(container.children[0].textContent, /недоступен/);
+  assert.match(container.children[1].href, /releases\/latest$/);
 });
 
 test('renderDownloadResult shows a download link with the version number for an exact match', () => {

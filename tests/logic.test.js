@@ -39,3 +39,13 @@ test('pickVersionForBlender falls back to the closest entry when nothing matches
 test('pickVersionForBlender returns null for an empty version list', () => {
   assert.equal(pickVersionForBlender([], '4.1.0'), null);
 });
+
+test('pickVersionForBlender falls back to the OLDEST entry (not the one with the smallest single-component diff) when Blender is older than every range', () => {
+  const versions = [
+    { addon_version: '0.2.0', blender_min: '4.2.0', blender_max: null, url: 'a' },
+    { addon_version: '0.1.0', blender_min: '3.6.0', blender_max: '4.1.9', url: 'b' },
+  ];
+  const result = pickVersionForBlender(versions, '3.0.0');
+  assert.equal(result.exact, false);
+  assert.equal(result.version.addon_version, '0.1.0');
+});
