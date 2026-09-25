@@ -1,0 +1,7 @@
+name = "blendershelf-feedback"
+main = "src/index.js"
+compatibility_date = "2026-09-25"
+
+[vars]
+GITHUB_OWNER = "denisghome-wq"
+GITHUB_REPO = "BlenderShelf"
