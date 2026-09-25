@@ -4,3 +4,4 @@ blender-icons.7z
 blender-icons/
 __pycache__/
 *.pyc
+worker/.wrangler/
