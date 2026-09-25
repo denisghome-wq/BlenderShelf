@@ -73,6 +73,7 @@
         <div class="field-group severity-field" hidden>
           <label for="feedback-severity" data-ru="Насколько критично" data-en="How critical">Насколько критично</label>
           <select id="feedback-severity" name="severity">
+            <option value="" data-ru="— выберите —" data-en="— choose —" selected disabled>— выберите —</option>
             <option value="critical" data-ru="Блокирует работу / крашит Blender" data-en="Blocks work / crashes Blender">Блокирует работу / крашит Blender</option>
             <option value="major" data-ru="Функция не работает" data-en="A feature doesn't work">Функция не работает</option>
             <option value="minor" data-ru="Мелочь, косметика" data-en="Cosmetic, minor">Мелочь, косметика</option>
@@ -96,7 +97,7 @@
         </div>
 
         <div class="field-group">
-          <label for="feedback-contact" data-ru="Контакт для ответа (необязательно)" data-en="Contact info (optional)">Контакт для ответа (необязательно)</label>
+          <label for="feedback-contact" data-ru="Контакт для ответа (необязательно, будет виден публично в GitHub Issues)" data-en="Contact info (optional, will be publicly visible on GitHub)">Контакт для ответа (необязательно, будет виден публично в GitHub Issues)</label>
           <input type="text" id="feedback-contact" name="contact">
         </div>
 

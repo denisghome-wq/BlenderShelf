@@ -52,6 +52,12 @@ function renderDownloadResult(container, lang, match, createElement) {
     }
   }
 
+  // Exposed so feedback.js (a separate <script>) can call it as a bare
+  // global, the same way it already reads pickVersionForBlender from logic.js.
+  if (typeof window !== 'undefined') {
+    window.currentLanguage = currentLanguage;
+  }
+
   function applyLanguage(lang) {
     document.querySelectorAll('[data-ru]').forEach((el) => {
       const text = lang === 'ru' ? el.dataset.ru : el.dataset.en;

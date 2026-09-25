@@ -18,13 +18,29 @@ const SEVERITY_LABELS = {
   minor: 'severity:minor',
 };
 
+export function isValidType(type) {
+  return Object.prototype.hasOwnProperty.call(TYPE_LABELS, type);
+}
+
+export function isValidSeverity(severity) {
+  return Object.prototype.hasOwnProperty.call(SEVERITY_LABELS, severity);
+}
+
 function fence(text) {
-  return '```\n' + text + '\n```';
+  const backtickRuns = text.match(/`+/g) || [];
+  const longestRun = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0);
+  const marker = '`'.repeat(Math.max(3, longestRun + 1));
+  return marker + '\n' + text + '\n' + marker;
+}
+
+function sanitizeVersion(value) {
+  return (value || '').replace(/[^\w.\- ]/g, '');
 }
 
 export function buildIssuePayload(fields) {
-  const type = fields.type || 'other';
-  const severity = fields.type === 'bug' ? fields.severity : '';
+  const type = isValidType(fields.type) ? fields.type : 'other';
+  const rawSeverity = fields.type === 'bug' ? fields.severity : '';
+  const severity = isValidSeverity(rawSeverity) ? rawSeverity : '';
   const description = (fields.description || '').trim();
   const truncated = description.slice(0, 60);
 
@@ -34,7 +50,7 @@ export function buildIssuePayload(fields) {
   const title = `${titlePrefix} ${truncated}`;
 
   const labels = [TYPE_LABELS[type]];
-  if (severity && SEVERITY_LABELS[severity]) {
+  if (severity) {
     labels.push(SEVERITY_LABELS[severity]);
   }
 
@@ -43,10 +59,10 @@ export function buildIssuePayload(fields) {
     lines.push(`**Severity:** ${severity}`);
   }
   if (fields.blenderVersion) {
-    lines.push(`**Blender version:** ${fields.blenderVersion}`);
+    lines.push(`**Blender version:** ${sanitizeVersion(fields.blenderVersion)}`);
   }
   if (fields.addonVersion) {
-    lines.push(`**BlenderShelf version:** ${fields.addonVersion}`);
+    lines.push(`**BlenderShelf version:** ${sanitizeVersion(fields.addonVersion)}`);
   }
   lines.push('', '**Description:**', fence(description));
   if (fields.contact) {

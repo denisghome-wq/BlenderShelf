@@ -1,4 +1,4 @@
-import { buildIssuePayload } from './issueBuilder.js';
+import { buildIssuePayload, isValidType, isValidSeverity } from './issueBuilder.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': 'https://denisghome-wq.github.io',
@@ -28,12 +28,28 @@ export default {
     } catch (e) {
       return json(400, { ok: false, error: 'invalid JSON' });
     }
+    if (!fields || typeof fields !== 'object') {
+      return json(400, { ok: false, error: 'invalid payload' });
+    }
 
     // Honeypot: a real visitor never fills this hidden field. Report success
     // without ever touching the GitHub API, so a bot's own success signal
     // tells it nothing changed and it has no reason to try a different field.
     if (fields.website) {
       return json(200, { ok: true });
+    }
+
+    // The client only offers the valid type/severity values, but this endpoint
+    // is public and unauthenticated — anyone can POST to it directly, so the
+    // server enforces the same allowlist rather than trusting the client.
+    if (!isValidType(fields.type)) {
+      return json(400, { ok: false, error: 'invalid type' });
+    }
+    if (fields.type === 'bug' && !isValidSeverity(fields.severity)) {
+      return json(400, { ok: false, error: 'invalid severity' });
+    }
+    if (!fields.description || !String(fields.description).trim()) {
+      return json(400, { ok: false, error: 'description required' });
     }
 
     const { title, labels, body } = buildIssuePayload(fields);

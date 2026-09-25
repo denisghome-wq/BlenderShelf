@@ -1,5 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+// main.js runs in the browser where `window` is the global object; simulate
+// that here (Node has no `window`) so we can assert currentLanguage is
+// exposed on it for other scripts (feedback.js) to call as a bare global.
+global.window = {};
 const { renderDownloadResult } = require('../site/assets/main.js');
 
 function fakeContainer() {
@@ -37,4 +42,8 @@ test('renderDownloadResult adds a warning element for a non-exact match', () => 
   renderDownloadResult(container, 'ru', match, fakeElement);
   assert.equal(container.children.length, 2);
   assert.equal(container.children[1].className, 'warning');
+});
+
+test('currentLanguage is exposed on window so other scripts (feedback.js) can call it as a bare global', () => {
+  assert.equal(typeof global.window.currentLanguage, 'function');
 });
