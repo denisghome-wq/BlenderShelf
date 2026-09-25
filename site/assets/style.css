@@ -299,6 +299,94 @@ footer {
   color: var(--accent);
 }
 
+.hp-field {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+#feedback fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.25rem;
+}
+
+#feedback legend {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+  padding: 0;
+}
+
+#feedback fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 1.25rem 0.5rem 0;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.field-group {
+  margin-bottom: 1.25rem;
+}
+
+.field-group label {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+
+.versions-field:not([hidden]) {
+  display: flex;
+  gap: 1rem;
+}
+
+.versions-field .field-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+#feedback input[type="text"],
+#feedback textarea,
+#feedback select {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  transition: border-color 0.15s ease-out;
+}
+
+#feedback input[type="text"]:hover,
+#feedback textarea:hover,
+#feedback select:hover {
+  border-color: var(--accent);
+}
+
+#feedback textarea {
+  resize: vertical;
+}
+
+#feedback-result {
+  margin-top: 1rem;
+}
+
+#feedback-result .success {
+  color: var(--accent);
+}
+
+#feedback-result .error {
+  color: var(--warning);
+}
+
 @media (max-width: 640px) {
   header nav {
     padding: 0.85rem 1.25rem;
@@ -323,5 +411,10 @@ footer {
 
   select {
     width: 100%;
+  }
+
+  .versions-field {
+    flex-direction: column;
+    gap: 1.25rem;
   }
 }

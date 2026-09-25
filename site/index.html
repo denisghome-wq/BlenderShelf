@@ -54,6 +54,56 @@
         data-ru="Скачать PDF-инструкцию"
         data-en="Download PDF guide (English translation coming soon)">Скачать PDF-инструкцию</a>
     </section>
+
+    <section id="feedback" class="wrap">
+      <h2 data-ru="Обратная связь" data-en="Feedback">Обратная связь</h2>
+      <p data-ru="Баг, идея или вопрос — без аккаунта GitHub и без почты." data-en="A bug, an idea, or a question — no GitHub account or email needed.">Баг, идея или вопрос — без аккаунта GitHub и без почты.</p>
+
+      <form id="feedback-form" class="panel" novalidate>
+        <input type="text" name="website" class="hp-field" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+        <fieldset id="feedback-type">
+          <legend data-ru="Тип обращения" data-en="Type">Тип обращения</legend>
+          <label><input type="radio" name="type" value="bug" required> <span data-ru="Баг" data-en="Bug">Баг</span></label>
+          <label><input type="radio" name="type" value="feature"> <span data-ru="Идея / хотелка" data-en="Feature request">Идея / хотелка</span></label>
+          <label><input type="radio" name="type" value="question"> <span data-ru="Вопрос" data-en="Question">Вопрос</span></label>
+          <label><input type="radio" name="type" value="other"> <span data-ru="Другое" data-en="Other">Другое</span></label>
+        </fieldset>
+
+        <div class="field-group severity-field" hidden>
+          <label for="feedback-severity" data-ru="Насколько критично" data-en="How critical">Насколько критично</label>
+          <select id="feedback-severity" name="severity">
+            <option value="critical" data-ru="Блокирует работу / крашит Blender" data-en="Blocks work / crashes Blender">Блокирует работу / крашит Blender</option>
+            <option value="major" data-ru="Функция не работает" data-en="A feature doesn't work">Функция не работает</option>
+            <option value="minor" data-ru="Мелочь, косметика" data-en="Cosmetic, minor">Мелочь, косметика</option>
+          </select>
+        </div>
+
+        <div class="field-group versions-field" hidden>
+          <div class="field-group">
+            <label for="feedback-blender-version" data-ru="Версия Blender" data-en="Blender version">Версия Blender</label>
+            <input type="text" id="feedback-blender-version" name="blenderVersion" placeholder="4.4.0">
+          </div>
+          <div class="field-group">
+            <label for="feedback-addon-version" data-ru="Версия BlenderShelf" data-en="BlenderShelf version">Версия BlenderShelf</label>
+            <input type="text" id="feedback-addon-version" name="addonVersion" placeholder="0.1.0">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="feedback-description" data-ru="Описание" data-en="Description">Описание</label>
+          <textarea id="feedback-description" name="description" rows="5" required></textarea>
+        </div>
+
+        <div class="field-group">
+          <label for="feedback-contact" data-ru="Контакт для ответа (необязательно)" data-en="Contact info (optional)">Контакт для ответа (необязательно)</label>
+          <input type="text" id="feedback-contact" name="contact">
+        </div>
+
+        <button type="submit" class="cta" data-ru="Отправить" data-en="Submit">Отправить</button>
+        <div id="feedback-result"></div>
+      </form>
+    </section>
   </main>
 
   <footer>
