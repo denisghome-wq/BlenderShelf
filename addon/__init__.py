@@ -1,17 +1,21 @@
 bl_info = {
     "name": "BlenderShelf",
     "author": "DenisZakharov",
-    "version": (0, 1, 0),
+    "version": (0, 1, 3),
     "blender": (4, 1, 0),
     "location": "3D Viewport, floating overlay near the top edge",
     "description": "A floating shelf of custom buttons in the 3D viewport (Maya-shelf style)",
     "category": "Interface",
+    "doc_url": "https://blendershelf.github.io/BlenderShelf/",
+    "tracker_url": "https://blendershelf.github.io/BlenderShelf/#feedback",
 }
 
 import os
+import re
 import json
 import math
 import time
+import ast
 import bpy
 import bmesh
 import gpu
@@ -29,6 +33,9 @@ BASE_PAD = 10
 DEFAULT_TOP_MARGIN = 40
 DEFAULT_RIGHT_MARGIN = 727
 PRESET_EDGE_MARGIN = 20
+
+VERSIONS_JSON_URL = "https://blendershelf.github.io/BlenderShelf/versions.json"
+DOWNLOAD_PAGE_URL = "https://blendershelf.github.io/BlenderShelf/#download"
 
 _icon_textures = {}
 
@@ -181,6 +188,289 @@ class BLENDERSHELF_OT_add_roundcube(bpy.types.Operator):
 
 BLENDER_ICON_DIR = os.path.join(ICON_DIR, "blender")
 
+# ---------------------------------------------------------------------------
+# Auto-icon lookup: instead of hand-maintaining an operator->icon table, ask
+# Blender's own registered menus what icon they draw next to each operator.
+# A fake UILayout stub records (operator_id, icon) pairs as every known Menu
+# subclass's draw() runs against it -- no real UI is ever shown. This also
+# picks up icons from the user's other installed addons for free.
+# ---------------------------------------------------------------------------
+
+_operator_icon_map = None
+
+
+def _build_operator_icon_map():
+    """Scan every registered Menu subclass and return {operator_id: icon_path}
+    for operators whose menu icon has a matching PNG in BLENDER_ICON_DIR."""
+    global _operator_icon_map
+    _operator_icon_map = {}
+    visited = set()
+
+    def scan(idname, depth=0):
+        if idname in visited or depth > 6:
+            return
+        visited.add(idname)
+        cls = getattr(bpy.types, idname, None)
+        if cls is None or not hasattr(cls, "draw"):
+            return
+
+        class _Layout:
+            def operator(self, opname, text="", icon='NONE', **kwargs):
+                if icon != 'NONE' and opname not in _operator_icon_map:
+                    _operator_icon_map[opname] = icon
+                return type("_Props", (), {"__setattr__": lambda s, n, v: None})()
+
+            def menu(self, menu_idname, *a, **k):
+                scan(menu_idname, depth + 1)
+
+            def menu_contents(self, menu_idname, *a, **k):
+                scan(menu_idname, depth + 1)
+
+            def __getattr__(self, name):
+                return lambda *a, **k: self
+
+            def __setattr__(self, name, value):
+                object.__setattr__(self, name, value)
+
+        fake_self = type("_FakeMenu", (), {})()
+        fake_self.layout = _Layout()
+        try:
+            cls.draw(fake_self, bpy.context)
+        except Exception:
+            pass
+
+    def collect(cls):
+        idn = getattr(cls, "bl_idname", None) or cls.__name__
+        scan(idn)
+        for sub in cls.__subclasses__():
+            collect(sub)
+
+    collect(bpy.types.Menu)
+
+    available = {f[:-4] for f in os.listdir(BLENDER_ICON_DIR) if f.endswith(".png")}
+    resolved = {
+        op_id: os.path.join(BLENDER_ICON_DIR, icon + ".png")
+        for op_id, icon in _operator_icon_map.items()
+        if icon in available
+    }
+    _operator_icon_map = resolved
+    return _operator_icon_map
+
+
+def _lookup_icon_for_operator(op_id):
+    global _operator_icon_map
+    if _operator_icon_map is None:
+        _build_operator_icon_map()
+    return _operator_icon_map.get(op_id)
+
+
+# ---------------------------------------------------------------------------
+# Generic fix for the whole "one operator, many rows via operator_enum()/
+# operator_menu_enum()" bug class (SKIP_SAVE -- see the long comment above
+# _OPERATOR_OVERRIDES): rather than hand-writing a label_fn/command_fn pair
+# per affected operator as they're reported one at a time, scan the Add menu
+# tree itself (same fake-layout technique as the icon map) for every
+# operator_enum()/operator_menu_enum() call, recording which property each
+# one varies. Anything found this way -- built-in or from a third-party
+# addon (Extra Curve Objects' Spirals/Profiles, Cablerator, etc.) -- gets
+# its label/command rebuilt directly from that property instead of via the
+# clipboard capture that silently drops it. _OPERATOR_OVERRIDES still wins
+# for anything hand-written there (more nuanced cases, multiple properties).
+# ---------------------------------------------------------------------------
+
+_ENUM_MENU_SCAN_ROOTS = ("VIEW3D_MT_add",)
+_enum_menu_prop_map = None
+
+
+def _build_enum_menu_prop_map():
+    global _enum_menu_prop_map
+    _enum_menu_prop_map = {}
+    visited = set()
+
+    def scan(idname, depth=0):
+        if idname in visited or depth > 6:
+            return
+        visited.add(idname)
+        cls = getattr(bpy.types, idname, None)
+        if cls is None or not hasattr(cls, "draw"):
+            return
+
+        class _Layout:
+            def operator(self, opname, text="", icon='NONE', **kwargs):
+                return type("_Props", (), {"__setattr__": lambda s, n, v: None})()
+
+            def operator_enum(self, opname, propname, *a, **k):
+                _enum_menu_prop_map.setdefault(opname, propname)
+
+            def operator_menu_enum(self, opname, propname, *a, **k):
+                _enum_menu_prop_map.setdefault(opname, propname)
+
+            def menu(self, menu_idname, *a, **k):
+                scan(menu_idname, depth + 1)
+
+            def menu_contents(self, menu_idname, *a, **k):
+                scan(menu_idname, depth + 1)
+
+            def __getattr__(self, name):
+                return lambda *a, **k: self
+
+            def __setattr__(self, name, value):
+                object.__setattr__(self, name, value)
+
+        fake_self = type("_FakeMenu", (), {})()
+        fake_self.layout = _Layout()
+        try:
+            cls.draw(fake_self, bpy.context)
+        except Exception:
+            pass
+
+    for root in _ENUM_MENU_SCAN_ROOTS:
+        scan(root)
+    return _enum_menu_prop_map
+
+
+def _enum_prop_for_operator(op_id):
+    global _enum_menu_prop_map
+    if _enum_menu_prop_map is None:
+        _build_enum_menu_prop_map()
+    return _enum_menu_prop_map.get(op_id)
+
+
+def _enum_menu_label_and_command(op_id, op, prop_name):
+    value = getattr(op, prop_name, None)
+    if value is None:
+        return None, None
+    try:
+        label = op.bl_rna.properties[prop_name].enum_items[value].name
+    except (KeyError, AttributeError, TypeError):
+        label = str(value)
+    return label, f"bpy.ops.{op_id}({prop_name}={value!r})"
+
+
+# Operators whose "type" enum value matches a real icon file 1:1 by Blender's
+# own naming convention (e.g. modifier_add(type='ARRAY') <-> MOD_ARRAY.png).
+# Exact, not a guess -- covers the one real gap the menu-scan can't (a single
+# operator id shared by every modifier type). Constraint types were tried and
+# dropped: object.constraint_add's "type" enum isn't introspectable outside a
+# real UI context and its Add menu isn't a plain Menu subclass either, so
+# there's no reliable identifier<->icon rule to verify here -- constraints
+# fall through to the menu-scan/fuzzy tiers instead.
+_TYPE_ICON_PREFIX = {
+    "object.modifier_add": "MOD_",
+}
+
+
+def _icon_from_type_prop(op_id, op):
+    prefix = _TYPE_ICON_PREFIX.get(op_id)
+    type_id = getattr(op, "type", None) if prefix else None
+    if not type_id:
+        return None
+    candidate = os.path.join(BLENDER_ICON_DIR, f"{prefix}{type_id}.png")
+    return candidate if os.path.exists(candidate) else None
+
+
+def _tokenize(text):
+    # Split camelCase boundaries first ("UnBevel" -> "Un Bevel") -- addon
+    # button labels are often one un-separated word, and without this a
+    # real word like "bevel" is invisible, glued inside "unbevel".
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
+    # len > 2 drops filler words ("up", "on", "to"...) that would otherwise
+    # false-match against unrelated icons sharing only a common short word.
+    return set(w for w in re.split(r"[^a-zA-Z0-9]+", text.lower()) if len(w) > 2)
+
+
+# Prefixes that are unambiguously "thing" icons (mesh/modifier/constraint/...)
+# rather than UI chrome, even when nothing captured by the menu-scan happens
+# to use them -- e.g. MOD_ARRAY.png exists but no reachable menu draws it
+# with an icon (HardOps' newer array tool draws its own GPU overlay instead
+# of a plain bpy.types.Menu, so the scan can't see it at all). Forcing these
+# prefixes into the fuzzy candidate pool closes that gap without having to
+# hand-curate all ~670 icon files.
+_SAFE_ICON_PREFIXES = ("MOD_", "CON_", "MESH_", "CURVE_", "SURFACE_", "META_", "FORCE_", "GP_", "NODE_")
+
+
+def _fuzzy_candidate_icons():
+    global _operator_icon_map
+    if _operator_icon_map is None:
+        _build_operator_icon_map()
+    names = {os.path.splitext(os.path.basename(p))[0] for p in _operator_icon_map.values()}
+    for fname in os.listdir(BLENDER_ICON_DIR):
+        if fname.endswith(".png") and fname.startswith(_SAFE_ICON_PREFIXES):
+            names.add(fname[:-4])
+    return names
+
+
+# Concept words that many addons never attach a real icon to (icon='NONE'
+# in their own draw() code, confirmed live for the Pivot Transform addon's
+# Loc./Rot./Sca. buttons) but that this icon pack still has a reasonable
+# visual stand-in for. Checked before the generic word-overlap guesser since
+# these abbreviations ("loc", "rot", "sca") don't share any substring with
+# their matching icon's own name, so plain tokenizing would never find them.
+_CONCEPT_ICONS = (
+    (("loc", "location", "locate", "translate", "translation", "position", "origin"), "OBJECT_ORIGIN"),
+    (("rot", "rotate", "rotation"), "CON_ROTLIKE"),
+    (("sca", "scale", "scaling"), "CON_SIZELIKE"),
+    (("transform",), "CON_TRANSFORM"),
+    (("pivot",), "PIVOT_ACTIVE"),
+    (("orient", "orientation", "direction"), "ORIENTATION_GIMBAL"),
+    # Pre-seeded common action words (same reasoning: the word itself never
+    # appears in a matching icon's own name, so the generic guesser alone
+    # would never find these). Grown from real mismatches as they're found,
+    # not written as an exhaustive catalog of all ~670 icons.
+    (("add", "new", "create"), "ADD"),
+    (("delete", "remove", "erase"), "REMOVE"),
+    (("unlock",), "UNLOCKED"),
+    (("lock",), "LOCKED"),
+    (("show", "unhide", "reveal"), "HIDE_OFF"),
+    (("hide",), "HIDE_ON"),
+    (("snap",), "SNAP_ON"),
+    (("duplicate", "clone"), "DUPLICATE"),
+    (("copy",), "COPYDOWN"),
+    (("paste",), "PASTEDOWN"),
+    (("unlink",), "UNLINKED"),
+    (("link",), "LINKED"),
+    (("group",), "GROUP"),
+)
+
+
+def _concept_icon_from_label(label):
+    if not label:
+        return None
+    tokens = _tokenize(label)
+    for keywords, icon_name in _CONCEPT_ICONS:
+        if tokens & set(keywords):
+            candidate = os.path.join(BLENDER_ICON_DIR, icon_name + ".png")
+            if os.path.exists(candidate):
+                return candidate
+    return None
+
+
+def _guess_icon_from_label(label):
+    """Last-resort fallback: score candidate icons by word overlap with the
+    button's label. A guess, not a lookup -- only used once type/menu
+    matches have both failed."""
+    if not label:
+        return None
+    label_tokens = _tokenize(label)
+    if not label_tokens:
+        return None
+    best_icon, best_score = None, 0
+    for icon_name in _fuzzy_candidate_icons():
+        score = len(label_tokens & _tokenize(icon_name))
+        if score > best_score:
+            best_score, best_icon = score, icon_name
+    return os.path.join(BLENDER_ICON_DIR, best_icon + ".png") if best_icon else None
+
+
+def _resolve_icon(op_id, op, label):
+    return (
+        _icon_from_type_prop(op_id, op)
+        or _lookup_icon_for_operator(op_id)
+        or _concept_icon_from_label(label)
+        or _guess_icon_from_label(label)
+    )
+
+
 DEFAULT_BUTTONS = [
     {"label": "Cube", "icon": os.path.join(BLENDER_ICON_DIR, "MESH_CUBE.png"),
      "command": "bpy.ops.mesh.primitive_cube_add()"},
@@ -204,6 +494,12 @@ class BLENDERSHELF_button_item(bpy.types.PropertyGroup):
                                      update=lambda self, context: _on_prefs_changed())
     show_in_pie: bpy.props.BoolProperty(name="Show in Pie Menu", default=True,
                                          update=lambda self, context: _on_prefs_changed())
+
+
+class BLENDERSHELF_command_param(bpy.types.PropertyGroup):
+    # .name (built-in on every PropertyGroup) holds the keyword itself,
+    # e.g. "radius" -- value holds its Python source text, e.g. "1.5".
+    value: bpy.props.StringProperty(name="Value", default="")
 
 
 def get_prefs():
@@ -531,6 +827,31 @@ def _enabled_items():
     return [b for b in prefs.buttons if b.enabled]
 
 
+def _visible_real_indices(coll):
+    """_enabled_items() is filtered; this maps each visible slot's position
+    (0..N-1, same order as _enabled_items()/shelf_geometry()'s rects) back to
+    its real index in the full prefs.buttons collection."""
+    return [i for i, b in enumerate(coll) if b.enabled]
+
+
+def _gap_under_mouse(rects, mx, my, vertical):
+    """Which of the N+1 gaps between visible slots the cursor is nearest to,
+    as an insertion index (0 = before the first slot, N = after the last).
+    rects is already in visual reading order for both orientations (left-to-
+    right horizontal, top-to-bottom vertical -- see shelf_geometry())."""
+    if vertical:
+        return sum(1 for (x0, y0, x1, y1) in rects if (y0 + y1) / 2.0 > my)
+    return sum(1 for (x0, y0, x1, y1) in rects if (x0 + x1) / 2.0 < mx)
+
+
+def _gap_target_real_index(real_indices, gap, coll_len):
+    if not real_indices:
+        return 0
+    if gap >= len(real_indices):
+        return min(real_indices[-1] + 1, coll_len - 1)
+    return real_indices[gap]
+
+
 def _seed_default_buttons(prefs):
     if len(prefs.buttons):
         return
@@ -565,6 +886,9 @@ class BLENDERSHELF_OT_pref_remove(bpy.types.Operator):
     bl_label = "Remove Button"
     target: bpy.props.EnumProperty(items=_TARGET_ITEMS, default='SHELF')
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
     def execute(self, context):
         prefs = get_prefs()
         coll, idx_attr = _target_collection(prefs, self.target)
@@ -595,20 +919,77 @@ class BLENDERSHELF_OT_pref_move(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class BLENDERSHELF_OT_start_move_button(bpy.types.Operator):
+    """Enter shelf-button move mode: the button follows the cursor until the
+    next click, which drops it into whichever gap the cursor is over"""
+    bl_idname = "blender_shelf.start_move_button"
+    bl_label = "Move"
+    target: bpy.props.EnumProperty(items=_TARGET_ITEMS, default='SHELF')
+
+    def execute(self, context):
+        global _moving_index, _move_insert_gap
+        prefs = get_prefs()
+        coll, idx_attr = _target_collection(prefs, self.target)
+        _moving_index = getattr(prefs, idx_attr)
+        _move_insert_gap = None
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        return {'FINISHED'}
+
+
+class BLENDERSHELF_MT_shelf_button_context(bpy.types.Menu):
+    """Right-click menu for a single shelf button (viewport overlay, not the
+    Preferences list). Relies on the caller having already pointed the
+    shelf's active_index at the right-clicked button before popping this."""
+    bl_idname = "BLENDERSHELF_MT_shelf_button_context"
+    bl_label = "Shelf Button"
+
+    def draw(self, context):
+        layout = self.layout
+        # Buttons drawn inside a popup menu run EXEC_DEFAULT by default --
+        # without this, Delete's own invoke_confirm() is silently skipped
+        # and it deletes immediately (confirmed live: this exact symptom).
+        layout.operator_context = 'INVOKE_DEFAULT'
+        layout.operator("blender_shelf.start_move_button", text="Move", icon='ARROW_LEFTRIGHT').target = 'SHELF'
+        layout.separator()
+        layout.operator("blender_shelf.pref_remove_button", text="Delete", icon='TRASH').target = 'SHELF'
+
+
+_copy_destination_items_cache = []  # kept referenced -- Blender frees dynamic enum strings otherwise
+
+
+def _copy_destination_items(self, context):
+    prefs = get_prefs()
+    keys = ['SHELF', 'PIE_OBJECT', 'PIE_EDIT']
+    if prefs:
+        if prefs.pie_context_sculpt:
+            keys.append('PIE_SCULPT')
+        if prefs.pie_context_uv:
+            keys.append('PIE_UV')
+        if prefs.pie_context_node_shader:
+            keys.append('PIE_NODE_SHADER')
+        if prefs.pie_context_node_geo:
+            keys.append('PIE_NODE_GEO')
+    global _copy_destination_items_cache
+    _copy_destination_items_cache = [(k, _TARGET_LABELS[k], "") for k in keys if k != self.source]
+    return _copy_destination_items_cache
+
+
 class BLENDERSHELF_OT_copy_button(bpy.types.Operator):
-    """Copy the selected button into another list (Shelf / Object Pie / Edit Pie)"""
+    """Copy the selected button into another, currently-enabled list"""
     bl_idname = "blender_shelf.copy_button"
     bl_label = "Copy To..."
     bl_options = {'REGISTER'}
 
     source: bpy.props.EnumProperty(items=_TARGET_ITEMS, default='SHELF')
-    destination: bpy.props.EnumProperty(items=_TARGET_ITEMS, name="Copy To", default='SHELF')
+    destination: bpy.props.EnumProperty(items=_copy_destination_items, name="Copy To")
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context):
-        self.layout.prop(self, "destination", expand=True)
+        self.layout.column().prop(self, "destination", expand=True)
 
     def execute(self, context):
         prefs = get_prefs()
@@ -691,13 +1072,118 @@ class BLENDERSHELF_OT_apply_script(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _parse_command_call(command):
+    """Split a captured `bpy.ops.x.y(k=v, ...)` command into (prefix, [(key,
+    value_src), ...]), or None if it isn't that shape (multi-line script,
+    positional args, **kwargs spread) -- those still need manual/script
+    editing, this only covers the common single-call case."""
+    try:
+        call = ast.parse(command.strip(), mode='eval').body
+    except SyntaxError:
+        return None
+    if not isinstance(call, ast.Call) or call.args or any(kw.arg is None for kw in call.keywords):
+        return None
+    prefix = ast.unparse(call.func)
+    params = [(kw.arg, ast.unparse(kw.value)) for kw in call.keywords]
+    return prefix, params
+
+
+def _operator_rna_params(op_id):
+    """List (name, default_value_src) for an operator's own user-facing
+    properties, read from its live RNA. WM_operator_pystring only ever
+    writes out properties that differ from their default, so a captured
+    command with zero explicit kwargs (e.g. a bare "primitive_cube_add()")
+    is completely normal -- without this, Edit Parameters would have
+    nothing to show for the majority of buttons."""
+    try:
+        category, name = op_id.split(".")
+        rna = getattr(getattr(bpy.ops, category), name).get_rna_type()
+    except Exception:
+        return []
+    params = []
+    for prop in rna.properties:
+        if prop.is_hidden:
+            continue
+        if getattr(prop, 'is_array', False):
+            default_src = repr(tuple(prop.default_array))
+        else:
+            default_src = repr(prop.default)
+        params.append((prop.identifier, default_src))
+    return params
+
+
+class BLENDERSHELF_OT_edit_params(bpy.types.Operator):
+    """Edit a captured command's keyword arguments as plain fields, e.g.
+    tweak a primitive's radius/vertex count without touching Python. Stands
+    in for Blender's own 'Adjust Last Operation' panel, which never appears
+    for shelf/pie buttons since they run via exec(), not a native UI click --
+    see FEEDBACK.md for why that panel can't be made to show up normally"""
+    bl_idname = "blender_shelf.edit_params"
+    bl_label = "Edit Parameters"
+    bl_options = {'REGISTER'}
+
+    target: bpy.props.EnumProperty(items=_TARGET_ITEMS, default='SHELF')
+    prefix: bpy.props.StringProperty(options={'HIDDEN'})
+    params: bpy.props.CollectionProperty(type=BLENDERSHELF_command_param)
+
+    def invoke(self, context, event):
+        prefs = get_prefs()
+        coll, idx_attr = _target_collection(prefs, self.target)
+        item = coll[getattr(prefs, idx_attr)]
+        parsed = _parse_command_call(item.command)
+        if parsed is None:
+            self.report({'WARNING'}, "Not a single 'op(key=value, ...)' call -- edit it as text/script instead.")
+            return {'CANCELLED'}
+        self.prefix, explicit = parsed
+        explicit_map = dict(explicit)
+
+        # Prefer the operator's live RNA properties (with their real
+        # defaults) over the bare captured kwargs, so there's something to
+        # edit even when nothing was explicitly written to the command --
+        # then fold in whatever WAS captured, and keep any leftover captured
+        # kwarg that isn't a normal RNA property (custom/override-built
+        # commands) so a round trip never silently drops it.
+        rna_params = _operator_rna_params(self.prefix.removeprefix("bpy.ops."))
+        rna_names = {name for name, _ in rna_params}
+        all_params = rna_params + [kv for kv in explicit if kv[0] not in rna_names]
+        if not all_params:
+            self.report({'INFO'}, "This command takes no keyword arguments to edit.")
+            return {'CANCELLED'}
+
+        self.params.clear()
+        for name, default_src in all_params:
+            p = self.params.add()
+            p.name = name
+            p.value = explicit_map.get(name, default_src)
+        return context.window_manager.invoke_props_dialog(self, width=350)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text=self.prefix)
+        for p in self.params:
+            row = layout.row()
+            row.label(text=p.name)
+            row.prop(p, "value", text="")
+
+    def execute(self, context):
+        rebuilt = self.prefix + "(" + ", ".join(f"{p.name}={p.value}" for p in self.params) + ")"
+        try:
+            ast.parse(rebuilt, mode='eval')
+        except SyntaxError as e:
+            self.report({'ERROR'}, f"Invalid value, not saved: {e}")
+            return {'CANCELLED'}
+        prefs = get_prefs()
+        coll, idx_attr = _target_collection(prefs, self.target)
+        coll[getattr(prefs, idx_attr)].command = rebuilt
+        _save_prefs()
+        self.report({'INFO'}, "Parameters updated")
+        return {'FINISHED'}
+
+
 class BLENDERSHELF_OT_pref_preset_position(bpy.types.Operator):
-    """Jump the shelf to a standard screen position"""
+    """Reset the shelf to its default top-center position"""
     bl_idname = "blender_shelf.pref_preset_position"
-    bl_label = "Shelf Position Preset"
-    preset: bpy.props.EnumProperty(items=(
-        ('TOP_CENTER', "Top Center", ""), ('BOTTOM_CENTER', "Bottom Center", ""),
-        ('TOP_RIGHT', "Top Right", ""), ('BOTTOM_RIGHT', "Bottom Right", "")))
+    bl_label = "Reset Position"
 
     def execute(self, context):
         region = _find_view3d_region()
@@ -712,15 +1198,8 @@ class BLENDERSHELF_OT_pref_preset_position(bpy.types.Operator):
         # top_margin/right_margin, both IntProperty (a bare float raises).
         panel_w, panel_h = _panel_size(total_slots, _is_vertical())
 
-        if self.preset in ('TOP_CENTER', 'BOTTOM_CENTER'):
-            prefs.right_margin = max(0, round((region.width - panel_w) / 2))
-        else:
-            prefs.right_margin = PRESET_EDGE_MARGIN
-
-        if self.preset in ('TOP_CENTER', 'TOP_RIGHT'):
-            prefs.top_margin = PRESET_EDGE_MARGIN + _min_top_margin()
-        else:
-            prefs.top_margin = max(0, round(region.height - panel_h - PRESET_EDGE_MARGIN))
+        prefs.right_margin = max(0, round((region.width - panel_w) / 2))
+        prefs.top_margin = PRESET_EDGE_MARGIN + _min_top_margin()
 
         _tag_viewports_redraw()
         _save_prefs()
@@ -750,6 +1229,43 @@ class BLENDERSHELF_OT_pick_icon(bpy.types.Operator):
             return {'CANCELLED'}
         coll[idx].icon_path = self.filepath
         _save_prefs()
+        return {'FINISHED'}
+
+
+class BLENDERSHELF_OT_check_update(bpy.types.Operator):
+    """Check the BlenderShelf website for a newer release"""
+    bl_idname = "blender_shelf.check_update"
+    bl_label = "Check for Updates"
+
+    def execute(self, context):
+        import urllib.request
+
+        prefs = get_prefs()
+        if prefs is None:
+            self.report({'ERROR'}, "Preferences not found")
+            return {'CANCELLED'}
+
+        try:
+            with urllib.request.urlopen(VERSIONS_JSON_URL, timeout=5) as resp:
+                versions = json.loads(resp.read())
+            latest = max(
+                tuple(int(part) for part in v["addon_version"].split("."))
+                for v in versions
+            )
+        except Exception as e:
+            prefs.update_available = False
+            prefs.update_status = f"Check failed: {e}"
+            self.report({'WARNING'}, prefs.update_status)
+            return {'CANCELLED'}
+
+        current = bl_info["version"]
+        if latest > current:
+            prefs.update_available = True
+            prefs.update_status = "Update available: " + ".".join(map(str, latest))
+        else:
+            prefs.update_available = False
+            prefs.update_status = "You're up to date (" + ".".join(map(str, current)) + ")"
+        self.report({'INFO'}, prefs.update_status)
         return {'FINISHED'}
 
 
@@ -986,7 +1502,7 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
                                         update=lambda self, context: _on_prefs_changed())
     show_number: bpy.props.BoolProperty(name="Show Number", default=False,
                                          update=lambda self, context: _on_prefs_changed())
-    show_export_button: bpy.props.BoolProperty(name="Show FBX Export Button", default=True,
+    show_export_button: bpy.props.BoolProperty(name="Show FBX Export Button", default=False,
                                                 update=lambda self, context: _on_prefs_changed())
     label_placement: bpy.props.EnumProperty(
         name="Label Placement",
@@ -1010,32 +1526,49 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
                ('BOTH', "Shelf + Pie Menu", "Show the shelf, and also allow opening the pie menu with the hotkey")),
         default='BOTH',
         update=lambda self, context: _on_prefs_changed())
+    # UI navigation only -- which Preferences tab is showing. Not saved to
+    # shelf_config.json (it's not addon behavior, just where the panel is
+    # scrolled to), so no update= callback and no _save_config()/.get() entry.
+    prefs_tab: bpy.props.EnumProperty(
+        items=(('SHELF', "Shelf", ""), ('PIE', "Pie Menu", "")),
+        default='SHELF')
+    # Session-only, never persisted to shelf_config.json -- result of the last
+    # "Check for Updates" click, cleared on Blender restart.
+    update_status: bpy.props.StringProperty(default="")
+    update_available: bpy.props.BoolProperty(default=False)
 
     def draw(self, context):
         layout = self.layout
 
-        row = layout.row(align=True)
+        # Boxed + labeled so it reads as a separate group from the Shelf/Pie
+        # Menu tabs below, instead of blending into the same visual block.
+        general_box = layout.box()
+        general_box.label(text="Backup & Updates")
+        row = general_box.row(align=True)
         row.operator("blender_shelf.export_settings", icon='EXPORT')
         row.operator("blender_shelf.import_settings", icon='IMPORT')
+
+        row = general_box.row(align=True)
+        row.operator("blender_shelf.check_update", icon='FILE_REFRESH')
+        if self.update_status:
+            row.label(text=self.update_status)
+        if self.update_available:
+            general_box.operator("wm.url_open", text="Open BlenderShelf website", icon='URL').url = DOWNLOAD_PAGE_URL
+
+        layout.separator()
 
         # Two top-level sections, each self-contained: everything about the
         # floating shelf (appearance/position + its button list), and
         # everything about the pie menu (hotkey + mode + its button lists).
-        # Previously the shelf's button list sat bare below both panels,
-        # unrelated-looking to "Appearance & Position" even though it's
-        # the same shelf -- nesting it here keeps the two concerns apart.
-        shelf_header, shelf_panel = layout.panel("blendershelf_shelf", default_closed=False)
-        shelf_header.label(text="Shelf")
-        if shelf_panel:
-            header, panel = shelf_panel.panel("blendershelf_appearance", default_closed=True)
+        # Shown as tab pages (Zen UV-style prop(expand=True) row) rather than
+        # stacked collapsible panels, so only one section is visible at once.
+        layout.row().prop(self, "prefs_tab", expand=True)
+
+        if self.prefs_tab == 'SHELF':
+            header, panel = layout.panel("blendershelf_appearance", default_closed=True)
             header.label(text="Appearance & Position")
             if panel:
-                row = panel.row(align=True)
-                row.operator("blender_shelf.pref_preset_position", text="Top Center").preset = 'TOP_CENTER'
-                row.operator("blender_shelf.pref_preset_position", text="Top Right").preset = 'TOP_RIGHT'
-                row = panel.row(align=True)
-                row.operator("blender_shelf.pref_preset_position", text="Bottom Center").preset = 'BOTTOM_CENTER'
-                row.operator("blender_shelf.pref_preset_position", text="Bottom Right").preset = 'BOTTOM_RIGHT'
+                panel.row().operator("blender_shelf.pref_preset_position")
                 row = panel.row()
                 row.prop(self, "top_margin")
                 row.prop(self, "right_margin")
@@ -1057,27 +1590,25 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "show_export_button")
                 panel.row().prop(self, "orientation", expand=True)
 
-            shelf_panel.label(text="Shelf buttons -- order determines button 1..N in the viewport:")
-            _draw_button_list(shelf_panel, self, 'SHELF', show_pie_flag=True)
+            layout.label(text="Shelf buttons -- order determines button 1..N in the viewport:")
+            _draw_button_list(layout, self, 'SHELF', show_pie_flag=True)
 
-        pie_header, pie_panel = layout.panel("blendershelf_pie", default_closed=True)
-        pie_header.label(text="Pie Menu")
-        if pie_panel:
-            pie_panel.prop(self, "display_mode")
+        elif self.prefs_tab == 'PIE':
+            layout.prop(self, "display_mode")
             if self.display_mode == 'PIE':
-                pie_panel.label(text="(falls back to the shelf if no key is assigned below)", icon='INFO')
-            box = pie_panel.box()
+                layout.label(text="(falls back to the shelf if no key is assigned below)", icon='INFO')
+            box = layout.box()
             box.label(text="Pie Menu Hotkey (3D Viewport):")
             _draw_pie_hotkey(box, context, '3D View')
 
-            pie_panel.row().prop(self, "pie_mode", expand=True)
+            layout.row().prop(self, "pie_mode", expand=True)
             if self.pie_mode == 'SPLIT':
-                pie_panel.label(text="Object Mode Pie:")
-                _draw_button_list(pie_panel, self, 'PIE_OBJECT')
-                pie_panel.label(text="Edit Mode Pie:")
-                _draw_button_list(pie_panel, self, 'PIE_EDIT')
+                layout.label(text="Object Mode Pie:")
+                _draw_button_list(layout, self, 'PIE_OBJECT')
+                layout.label(text="Edit Mode Pie:")
+                _draw_button_list(layout, self, 'PIE_EDIT')
 
-                extra_box = pie_panel.box()
+                extra_box = layout.box()
                 extra_box.label(text="Optional Contexts:")
 
                 def draw_sculpt():
@@ -1169,10 +1700,15 @@ def _draw_button_list(layout, prefs, target, show_pie_flag=False):
         row.prop(item, "icon_path")
         row.operator("blender_shelf.pick_icon", text="", icon='FILE_FOLDER').target = target
         box.prop(item, "command")
+        box.operator("blender_shelf.edit_params", icon='PROPERTIES').target = target
         row = box.row(align=True)
         row.operator("blender_shelf.edit_script", icon='TEXT').target = target
         row.operator("blender_shelf.apply_script", icon='FILE_REFRESH').target = target
-        box.operator("blender_shelf.copy_button", icon='DUPLICATE', text="Copy To...").source = target
+        # Copy To only makes sense with independent per-context pie lists --
+        # in Mirror mode the pie always duplicates the shelf, so there's
+        # nothing separate to copy into.
+        if prefs.pie_mode == 'SPLIT':
+            box.operator("blender_shelf.copy_button", icon='DUPLICATE', text="Copy To...").source = target
 
 
 # ---------------------------------------------------------------------------
@@ -1469,10 +2005,18 @@ def _capture_button_command(context):
                 icon_path = icon_fn(op)
             except Exception:
                 icon_path = None
+        icon_path = icon_path or _resolve_icon(op_id, op, label)
         try:
             return op_id, label, command_fn(op), icon_path
         except Exception:
             return op_id, label, f"bpy.ops.{op_id}()", icon_path
+
+    enum_prop = _enum_prop_for_operator(op_id)
+    if enum_prop:
+        enum_label, enum_command = _enum_menu_label_and_command(op_id, op, enum_prop)
+        if enum_command:
+            label = enum_label or label
+            return op_id, label, enum_command, _resolve_icon(op_id, op, label)
 
     command = ""
     try:
@@ -1482,7 +2026,7 @@ def _capture_button_command(context):
         command = ""
     if not (command and op_id in command):
         command = f"bpy.ops.{op_id}()"
-    return op_id, label, command, None
+    return op_id, label, command, _resolve_icon(op_id, op, label)
 
 
 class BLENDERSHELF_OT_add_from_context(bpy.types.Operator):
@@ -1910,12 +2454,24 @@ def draw_shelf():
 
     rects = []
     draw_panel = _should_draw_shelf()
+    moving_slot_i = None
+    if draw_panel and prefs is not None and _moving_index is not None:
+        real_indices = _visible_real_indices(prefs.buttons)
+        if _moving_index in real_indices:
+            moving_slot_i = real_indices.index(_moving_index)
+
     if draw_panel:
         x, y, panel_w, panel_h, rects = shelf_geometry(region)
         _round_quad(color_shader, x, y, x + panel_w, y + panel_h, bg_color, PANEL_RADIUS)
 
         for i, (x0, y0, x1, y1) in enumerate(rects):
             btn = items[i]
+            if i == moving_slot_i:
+                # left behind as a faint placeholder -- the real button is
+                # drawn following the cursor instead, see below.
+                dim = (btn_normal[0], btn_normal[1], btn_normal[2], btn_normal[3] * 0.25)
+                _round_quad(color_shader, x0, y0, x1, y1, dim, BTN_RADIUS)
+                continue
             if i == _pressed_index:
                 bg = btn_pressed
             elif i == _hover_index:
@@ -1935,6 +2491,45 @@ def draw_shelf():
 
             if i == _pressed_index:
                 _border(color_shader, x0, y0, x1, y1, PRESSED_BORDER)
+
+        if _moving_index is not None and moving_slot_i is not None:
+            moving_btn = prefs.buttons[_moving_index]
+            btn_sz = _btn_size()
+            half = btn_sz / 2.0
+            gx0, gy0 = _mouse_x - half, _mouse_y - half
+            gx1, gy1 = _mouse_x + half, _mouse_y + half
+            _round_quad(color_shader, gx0, gy0, gx1, gy1, btn_pressed, BTN_RADIUS)
+            ghost_tex = _get_icon_texture(moving_btn.icon_path)
+            if ghost_tex is not None:
+                verts = ((gx0, gy0), (gx1, gy0), (gx1, gy1), (gx0, gy1))
+                uvs = ((0, 0), (1, 0), (1, 1), (0, 1))
+                batch = batch_for_shader(image_shader, 'TRI_FAN', {"pos": verts, "texCoord": uvs})
+                image_shader.bind()
+                image_shader.uniform_sampler("image", ghost_tex)
+                batch.draw(image_shader)
+            _border(color_shader, gx0, gy0, gx1, gy1, PRESSED_BORDER, t=1)
+
+            if _move_insert_gap is not None and rects:
+                vertical = _is_vertical()
+                g = _move_insert_gap
+                pad = _pad_size()
+                sep_color = (1.0, 0.85, 0.2, 0.95)
+                if vertical:
+                    if g <= 0:
+                        sep_y = rects[0][3] + pad / 2.0
+                    elif g >= len(rects):
+                        sep_y = rects[-1][1] - pad / 2.0
+                    else:
+                        sep_y = (rects[g - 1][1] + rects[g][3]) / 2.0
+                    _round_quad(color_shader, rects[0][0], sep_y - 1.5, rects[0][2], sep_y + 1.5, sep_color, 1.5)
+                else:
+                    if g <= 0:
+                        sep_x = rects[0][0] - pad / 2.0
+                    elif g >= len(rects):
+                        sep_x = rects[-1][2] + pad / 2.0
+                    else:
+                        sep_x = (rects[g - 1][2] + rects[g][0]) / 2.0
+                    _round_quad(color_shader, sep_x - 1.5, rects[0][1], sep_x + 1.5, rects[0][3], sep_color, 1.5)
 
         if show_export_button:
             ex0, ey0, ex1, ey1 = fbx_button_rect(region)
@@ -1975,6 +2570,8 @@ def draw_shelf():
         blf.color(font_id, 1, 1, 1, 0.9)
         blf.size(font_id, 11)
         for i, (x0, y0, x1, y1) in enumerate(rects):
+            if i == moving_slot_i:
+                continue
             blf.position(font_id, x0 + 2, y1 - 13, 0)
             blf.draw(font_id, str(i + 1))
 
@@ -1986,6 +2583,8 @@ def draw_shelf():
         blf.color(font_id, *label_color)
         line_h = label_font_size + 2
         for i, (x0, y0, x1, y1) in enumerate(rects):
+            if i == moving_slot_i:
+                continue
             lines = _wrap_label(font_id, items[i].label, (x1 - x0) - 4)
             n = len(lines)
             for li, line in enumerate(lines):
@@ -2019,7 +2618,9 @@ def draw_shelf():
         blf.draw(font_id, "sel")
 
     tooltip_text = None
-    if _hover_index is not None and 0 <= _hover_index < len(items):
+    if _moving_index is not None:
+        tooltip_text = "Click to drop here, right-click/Esc to cancel"
+    elif _hover_index is not None and 0 <= _hover_index < len(items):
         tooltip_text = items[_hover_index].label
     elif _export_hover and show_export_button:
         tooltip_text = "Export Selected to FBX"
@@ -2072,6 +2673,9 @@ _last_screen_ptr = None  # win.screen.as_pointer() as of the last _start_modal
                           # tick, to detect a workspace-tab switch and force
                           # a clean restart -- see _restart_requested above.
 
+_moving_index = None  # real prefs.buttons index of the button being moved, or None
+_move_insert_gap = None  # 0..N gap position (in _enabled_items() order) under the cursor while moving
+
 
 # ---------------------------------------------------------------------------
 # Click handling -- a single persistent modal operator, started on register
@@ -2086,6 +2690,7 @@ class BLENDERSHELF_OT_modal(bpy.types.Operator):
         global _export_hover, _export_pressed, _orient_hover, _drag_hover
         global _dragging_shelf, _drag_start_mouse, _drag_start_margins, _drag_live_margins
         global _last_alive, _restart_requested
+        global _moving_index, _move_insert_gap
         _last_alive = time.time()  # proof of life, independent of _modal_running
         if _modal_stop or _restart_requested:
             _modal_running = False
@@ -2098,8 +2703,24 @@ class BLENDERSHELF_OT_modal(bpy.types.Operator):
 
         in_viewport = context.region and context.region.type == 'WINDOW' and context.area and context.area.type == 'VIEW_3D'
 
+        if _moving_index is not None and event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            _moving_index = None
+            _move_insert_gap = None
+            if context.area:
+                context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
         if event.type == 'MOUSEMOVE':
             mx, my = event.mouse_region_x, event.mouse_region_y
+            if _moving_index is not None:
+                _mouse_x, _mouse_y = mx, my
+                if in_viewport and _should_draw_shelf():
+                    _, _, _, _, rects = shelf_geometry(context.region)
+                    _move_insert_gap = _gap_under_mouse(rects, mx, my, _is_vertical())
+                if context.area:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}  # consume it -- don't hover/orbit while moving
+
             if _dragging_shelf:
                 _mouse_x, _mouse_y = mx, my
                 dx = mx - _drag_start_mouse[0]
@@ -2140,6 +2761,42 @@ class BLENDERSHELF_OT_modal(bpy.types.Operator):
             _drag_hover = new_drag_hover
             if should_redraw and context.area:
                 context.area.tag_redraw()
+            return {'PASS_THROUGH'}
+
+        if _moving_index is not None and event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            prefs = get_prefs()
+            if prefs is not None and _move_insert_gap is not None:
+                coll, idx_attr = _target_collection(prefs, 'SHELF')
+                real_indices = _visible_real_indices(coll)
+                target = _gap_target_real_index(real_indices, _move_insert_gap, len(coll))
+                if target != _moving_index:
+                    coll.move(_moving_index, target)
+                    setattr(prefs, idx_attr, target)
+                    _save_prefs()
+            _moving_index = None
+            _move_insert_gap = None
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS' and in_viewport:
+            mx, my = event.mouse_region_x, event.mouse_region_y
+            if _should_draw_shelf():
+                _, _, _, _, rects = shelf_geometry(context.region)
+                for i, (x0, y0, x1, y1) in enumerate(rects):
+                    if x0 <= mx <= x1 and y0 <= my <= y1:
+                        prefs = get_prefs()
+                        real_indices = _visible_real_indices(prefs.buttons)
+                        if i < len(real_indices):
+                            prefs.active_index = real_indices[i]
+                            # explicit INVOKE_DEFAULT -- called from a script/
+                            # modal context (not a real UI button click), so
+                            # without it every operator drawn inside the menu
+                            # (Delete's own invoke_confirm included) silently
+                            # runs EXEC-only and skips its invoke()/dialog.
+                            bpy.ops.wm.call_menu('INVOKE_DEFAULT', name="BLENDERSHELF_MT_shelf_button_context")
+                        return {'RUNNING_MODAL'}
             return {'PASS_THROUGH'}
 
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and in_viewport:
@@ -2316,16 +2973,21 @@ def _start_modal():
 classes = (
     BLENDERSHELF_OT_add_roundcube,
     BLENDERSHELF_button_item,
+    BLENDERSHELF_command_param,
     BLENDERSHELF_UL_buttons,
     BlenderShelfPreferences,
     BLENDERSHELF_OT_pref_add,
     BLENDERSHELF_OT_pref_remove,
     BLENDERSHELF_OT_pref_move,
+    BLENDERSHELF_OT_start_move_button,
+    BLENDERSHELF_MT_shelf_button_context,
     BLENDERSHELF_OT_copy_button,
     BLENDERSHELF_OT_edit_script,
     BLENDERSHELF_OT_apply_script,
+    BLENDERSHELF_OT_edit_params,
     BLENDERSHELF_OT_pref_preset_position,
     BLENDERSHELF_OT_pick_icon,
+    BLENDERSHELF_OT_check_update,
     BLENDERSHELF_OT_export_settings,
     BLENDERSHELF_OT_import_settings,
     BLENDERSHELF_OT_run_command,
@@ -2387,6 +3049,7 @@ def unregister():
     global _draw_handle, _modal_stop, _hover_index, _pressed_index
     global _export_hover, _export_pressed, _icon_previews
     global _orient_hover, _drag_hover, _dragging_shelf, _drag_live_margins
+    global _moving_index, _move_insert_gap
     _modal_stop = True
     _hover_index = None
     _pressed_index = None
@@ -2396,6 +3059,8 @@ def unregister():
     _drag_hover = False
     _dragging_shelf = False
     _drag_live_margins = None
+    _moving_index = None
+    _move_insert_gap = None
     _unregister_keymap()
     if hasattr(bpy.types, "UI_MT_button_context_menu"):
         try:
