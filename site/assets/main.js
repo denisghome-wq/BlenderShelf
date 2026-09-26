@@ -1,4 +1,4 @@
-const LATEST_RELEASE_URL = 'https://github.com/denisghome-wq/BlenderShelf/releases/latest';
+const LATEST_RELEASE_URL = 'https://github.com/blendershelf/BlenderShelf/releases/latest';
 
 function renderDownloadResult(container, lang, match, createElement) {
   const make = createElement || (typeof document !== 'undefined' ? document.createElement.bind(document) : null);

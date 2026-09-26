@@ -1,7 +1,7 @@
 import { buildIssuePayload, isValidType, isValidSeverity } from './issueBuilder.js';
 
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': 'https://denisghome-wq.github.io',
+  'Access-Control-Allow-Origin': 'https://blendershelf.github.io',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };

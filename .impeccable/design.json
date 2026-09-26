@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-26T06:49:56Z",
+  "title": "Design System: BlenderShelf site",
+  "extensions": {
+    "colorMeta": {
+      "bg": { "role": "neutral", "displayName": "Ground", "canonical": "#0d0b0a" },
+      "bg-elevated": { "role": "neutral", "displayName": "Elevated Surface", "canonical": "#18150f" },
+      "bg-elevated-2": { "role": "neutral", "displayName": "Elevated Surface 2 (reserved, unused)", "canonical": "#211d17" },
+      "border": { "role": "neutral", "displayName": "Hairline Border", "canonical": "#2a2620" },
+      "border-strong": { "role": "neutral", "displayName": "Border Strong", "canonical": "#3c3630" },
+      "text": { "role": "neutral", "displayName": "Text", "canonical": "#f2f1ee" },
+      "text-muted": { "role": "neutral", "displayName": "Text Muted", "canonical": "#99989f" },
+      "accent": { "role": "primary", "displayName": "Signal Orange", "canonical": "#f5792a", "tonalRamp": ["#2b1508", "#4a250d", "#743813", "#a34e1a", "#d1651f", "#f5792a", "#ff9248", "#ffb680"] },
+      "accent-hover": { "role": "primary", "displayName": "Signal Orange Hover", "canonical": "#ff9248" },
+      "accent-text": { "role": "neutral", "displayName": "Accent Ink", "canonical": "#14120f" },
+      "warning": { "role": "neutral", "displayName": "Warning Amber", "canonical": "#ffb84d" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display / H1", "purpose": "Hero headline only." },
+      "heading": { "displayName": "Headline / H2", "purpose": "Section titles." },
+      "body": { "displayName": "Body", "purpose": "Paragraph copy, Text Muted color, max 62ch." },
+      "label": { "displayName": "Label / Mono", "purpose": "Language-toggle pill only; the sole mono UI chrome." }
+    },
+    "shadows": [],
+    "breakpoints": [
+      { "name": "tablet", "value": "900px" },
+      { "name": "mobile", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary CTA",
+      "kind": "button",
+      "refersTo": "cta",
+      "description": "Primary call-to-action button/link (Download, Submit).",
+      "html": "<a class=\"ds-cta\" href=\"#\">Download</a>",
+      "css": ".ds-cta { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.8rem 1.6rem; background: #f5792a; color: #14120f; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-weight: 600; text-decoration: none; border-radius: 8px; transition: background-color 0.15s ease-out, transform 0.1s ease-out; } .ds-cta:hover { background: #ff9248; transform: translateY(-1px); } .ds-cta:active { transform: translateY(0); } .ds-cta:focus-visible { outline: 2px solid #f5792a; outline-offset: 2px; border-radius: 4px; }"
+    },
+    {
+      "name": "Ghost CTA",
+      "kind": "button",
+      "refersTo": "cta-ghost",
+      "description": "Secondary action (guide PDF, Boosty support link).",
+      "html": "<a class=\"ds-cta-ghost\" href=\"#\">Support on Boosty</a>",
+      "css": ".ds-cta-ghost { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.8rem 1.6rem; background: transparent; color: #f2f1ee; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-weight: 600; text-decoration: none; border: 1px solid #2a2620; border-radius: 8px; transition: background-color 0.15s ease-out, border-color 0.15s ease-out; } .ds-cta-ghost:hover { background: #18150f; border-color: #f5792a; color: #f2f1ee; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Elevated container for the download picker and feedback form.",
+      "html": "<div class=\"ds-panel\">Panel content</div>",
+      "css": ".ds-panel { background: #18150f; border: 1px solid #2a2620; border-radius: 12px; padding: 1.75rem; }"
+    },
+    {
+      "name": "How-it-works card",
+      "kind": "card",
+      "refersTo": "how-card",
+      "description": "Feature card with a real product screenshot in a plain bordered frame, a title, and a one-line description.",
+      "html": "<div class=\"ds-how-card\"><figure class=\"ds-how-figure\"><img src=\"shelf-closeup.png\" alt=\"\" style=\"max-width:100%;height:auto;display:block;\"></figure><h3 class=\"ds-how-title\">Floating shelf</h3><p class=\"ds-how-body\">A row of your own command buttons right over the 3D viewport.</p></div>",
+      "css": ".ds-how-card { background: #18150f; border: 1px solid #2a2620; border-radius: 12px; padding: 1.25rem; transition: border-color 0.15s ease-out; font-family: 'IBM Plex Sans', system-ui, sans-serif; } .ds-how-card:hover { border-color: #3c3630; } .ds-how-figure { margin: 0 0 1.1rem; background: #0d0b0a; border: 1px solid #2a2620; border-radius: 8px; padding: 0.9rem; display: flex; align-items: center; justify-content: center; min-height: 140px; } .ds-how-title { color: #f2f1ee; font-weight: 600; font-size: 1.05rem; margin: 0 0 0.4rem; } .ds-how-body { color: #99989f; font-size: 0.92rem; margin: 0; }"
+    },
+    {
+      "name": "Text input",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Text field / select used in the download and feedback forms.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"4.4.0\">",
+      "css": ".ds-input { width: 100%; font: inherit; color: #f2f1ee; background: #0d0b0a; border: 1px solid #2a2620; border-radius: 8px; padding: 0.6rem 0.8rem; transition: border-color 0.15s ease-out; } .ds-input:hover { border-color: #f5792a; } .ds-input:focus-visible { outline: 2px solid #f5792a; outline-offset: 2px; border-radius: 4px; }"
+    },
+    {
+      "name": "Language toggle",
+      "kind": "nav",
+      "refersTo": "lang-toggle",
+      "description": "Signature bilingual RU/EN pill control in the sticky header; the site's only mono-labeled chrome.",
+      "html": "<button class=\"ds-lang-toggle\" type=\"button\">EN</button>",
+      "css": ".ds-lang-toggle { cursor: pointer; padding: 0.4rem 0.9rem; font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace; font-weight: 500; font-size: 0.75rem; letter-spacing: 0.06em; color: #99989f; background: transparent; border: 1px solid #2a2620; border-radius: 999px; transition: border-color 0.15s ease-out, color 0.15s ease-out; } .ds-lang-toggle:hover { color: #f2f1ee; border-color: #f5792a; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Restrained Dev-Tool Landing",
+    "overview": "A precise, warm-neutral dark page in the Linear/Raycast/Vercel register: one disciplined accent color, a coherent bilingual type family, hairline borders, and real product screenshots in plain frames do the persuading. There is no theme metaphor (no blueprint/schematic device, no Maya-shelf visual pun) — the world is the craft bar itself, played straight. This explicitly replaces a discarded dark-orange/Hanken-Grotesk execution that the owner named as anti-reference. IBM Plex Sans/Mono was chosen specifically to render Latin and Cyrillic as one coherent family, since the site is fully bilingual (RU/EN, equally primary) and the prior font's weak Cyrillic support was the owner's original complaint.",
+    "keyCharacteristics": [
+      "Warm-neutral near-black ground, never pure black or cool-gray",
+      "A single committed accent, used at CTA/wordmark/focus-ring/selection weight only — never scattered as chips or multiple tinted accents",
+      "Hairline 1px borders throughout; no heavy shadows, no gradients",
+      "Real product screenshots in plain 1px-bordered frames, never fake device chrome",
+      "No kicker/eyebrow labels above headings anywhere on the page"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "--accent is the only saturated color on the page. It appears at CTA/wordmark/focus/selection moments only; it never tints a card background, an icon, or a body of text.", "section": "colors" },
+      { "name": "The No-Kicker Rule", "body": "Section and card headings are never preceded by an eyebrow/kicker label. A kicker treatment was built and removed during this redesign for violating the craft floor; it is a defect the build once carried, not a system element — do not reintroduce it on future surfaces.", "section": "typography" },
+      { "name": "The Flat-Ladder Rule", "body": "Elevation is a background-color step (Ground -> Elevated Surface) plus a 1px border, never a box-shadow. This system carries no hard-offset shadow of any kind — not even the neobrutalist kind — because the world is a restrained dev-tool page, not a neobrutalist one.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep the accent to CTA / wordmark-accent / focus-ring / selection moments only (The One Accent Rule).",
+      "Do use IBM Plex Sans for all UI text and IBM Plex Mono only for the language-toggle control, to keep the mono face legible as \"this is a control.\"",
+      "Do frame every product screenshot in a plain 1px-bordered box (.hero-shot, .how-card figure) at Ground or Elevated Surface background — never a fake browser/device chrome.",
+      "Do step elevation with background-color + border only (Ground -> Elevated Surface -> Border-Strong on hover); never introduce a box-shadow.",
+      "Do carry data-ru/data-en (and the -href-/-src- variants) on any new translatable element; do not hardcode a single-language string on new surfaces."
+    ],
+    "donts": [
+      "Don't add a kicker/eyebrow label above any heading — this was built, then removed for violating the craft floor's explicit ban; it is not a system element to reintroduce.",
+      "Don't add gradient text or a gradient fill anywhere; none exists in the shipped system and the direction contract calls for typographic hierarchy and whitespace to carry the design, not decorative gradients.",
+      "Don't add hard-offset/neobrutalist shadows or any box-shadow; this is a flat-ladder system, not a neobrutalist one.",
+      "Don't add a second saturated accent color or use the accent as a background fill outside CTA/wordmark contexts.",
+      "Don't consume --bg-elevated-2 for a new \"third surface\" without a real nested-elevation need — it's currently an unused reserved token, not an established third step."
+    ]
+  }
+}

@@ -5,3 +5,5 @@ blender-icons/
 __pycache__/
 *.pyc
 worker/.wrangler/
+.impeccable/review/
+.impeccable/hook.cache.json
