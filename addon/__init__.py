@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BlenderShelf",
     "author": "DenisZakharov",
-    "version": (0, 1, 4),
+    "version": (0, 1, 5),
     "blender": (4, 1, 0),
     "location": "3D Viewport, floating overlay near the top edge",
     "description": "A floating shelf of custom buttons in the 3D viewport (Maya-shelf style)",
@@ -31,7 +31,7 @@ CONFIG_FILE = os.path.join(ADDON_DIR, "shelf_config.json")
 BASE_BTN = 40
 BASE_PAD = 10
 DEFAULT_TOP_MARGIN = 40
-DEFAULT_RIGHT_MARGIN = 727
+DEFAULT_LEFT_MARGIN_PCT = 0.03
 PRESET_EDGE_MARGIN = 20
 
 VERSIONS_JSON_URL = "https://blendershelf.github.io/BlenderShelf/versions.json"
@@ -515,6 +515,8 @@ class BLENDERSHELF_button_item(bpy.types.PropertyGroup):
                                      update=lambda self, context: _on_prefs_changed())
     show_in_pie: bpy.props.BoolProperty(name="Show in Pie Menu", default=True,
                                          update=lambda self, context: _on_prefs_changed())
+    is_separator: bpy.props.BoolProperty(name="Separator", default=False,
+                                          update=lambda self, context: _on_prefs_changed())
 
 
 class BLENDERSHELF_command_param(bpy.types.PropertyGroup):
@@ -693,7 +695,7 @@ def _resolve_icon_path(stored):
 
 def _serialize_items(coll):
     return [{"label": b.label, "icon_path": _portable_icon_path(b.icon_path), "command": b.command,
-              "enabled": b.enabled, "show_in_pie": b.show_in_pie} for b in coll]
+              "enabled": b.enabled, "show_in_pie": b.show_in_pie, "is_separator": b.is_separator} for b in coll]
 
 
 def _deserialize_items(coll, data_list):
@@ -705,19 +707,21 @@ def _deserialize_items(coll, data_list):
         item.command = d.get("command", "")
         item.enabled = d.get("enabled", True)
         item.show_in_pie = d.get("show_in_pie", True)
+        item.is_separator = d.get("is_separator", False)
 
 
 def _config_to_dict(prefs):
     return {
         "version": list(bl_info["version"]),
         "top_margin": prefs.top_margin,
-        "right_margin": prefs.right_margin,
+        "left_margin_pct": prefs.left_margin_pct,
         "label_font_size": prefs.label_font_size,
         "shelf_scale": prefs.shelf_scale,
         "icon_opacity": prefs.icon_opacity,
         "label_color": list(prefs.label_color),
         "btn_color": list(prefs.btn_color),
         "bg_color": list(prefs.bg_color),
+        "separator_color": list(prefs.separator_color),
         "show_label": prefs.show_label,
         "show_number": prefs.show_number,
         "show_export_button": prefs.show_export_button,
@@ -782,13 +786,14 @@ def _load_config_from_path(prefs, path):
     if saved_version < bl_info["version"]:
         data = _migrate_config(data, saved_version)
     prefs.top_margin = data.get("top_margin", DEFAULT_TOP_MARGIN)
-    prefs.right_margin = data.get("right_margin", DEFAULT_RIGHT_MARGIN)
+    prefs.left_margin_pct = data.get("left_margin_pct", DEFAULT_LEFT_MARGIN_PCT)
     prefs.label_font_size = data.get("label_font_size", 7)
     prefs.shelf_scale = data.get("shelf_scale", 1.0)
     prefs.icon_opacity = data.get("icon_opacity", 1.0)
     prefs.label_color = data.get("label_color", [1.0, 1.0, 1.0, 0.9])
     prefs.btn_color = data.get("btn_color", [0.32, 0.32, 0.32, 1.0])
     prefs.bg_color = data.get("bg_color", [0.10, 0.10, 0.10, 0.9])
+    prefs.separator_color = data.get("separator_color", [1.0, 1.0, 1.0, 0.4])
     prefs.show_label = data.get("show_label", True)
     prefs.show_number = data.get("show_number", True)
     prefs.show_export_button = data.get("show_export_button", True)
@@ -834,13 +839,13 @@ def _save_prefs():
     _save_config()
 
 
-def _position():
+def _position(region):
     if _drag_live_margins is not None:
         return _drag_live_margins
     prefs = get_prefs()
     if prefs is None:
-        return DEFAULT_TOP_MARGIN, DEFAULT_RIGHT_MARGIN
-    return prefs.top_margin, prefs.right_margin
+        return DEFAULT_TOP_MARGIN, DEFAULT_LEFT_MARGIN_PCT * region.width
+    return prefs.top_margin, prefs.left_margin_pct * region.width
 
 
 def _enabled_items():
@@ -961,6 +966,30 @@ class BLENDERSHELF_OT_start_move_button(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class BLENDERSHELF_OT_add_separator(bpy.types.Operator):
+    """Add a visual separator, then drag it to where you want it -- same
+    mechanic as Move, since it's really just a special item being placed"""
+    bl_idname = "blender_shelf.add_separator"
+    bl_label = "Add Separator"
+    target: bpy.props.EnumProperty(items=_TARGET_ITEMS, default='SHELF')
+
+    def execute(self, context):
+        global _moving_index, _move_insert_gap
+        prefs = get_prefs()
+        coll, idx_attr = _target_collection(prefs, self.target)
+        item = coll.add()
+        item.label = "Separator"
+        item.is_separator = True
+        item.enabled = True
+        _moving_index = len(coll) - 1
+        _move_insert_gap = None
+        _save_prefs()
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        return {'FINISHED'}
+
+
 class BLENDERSHELF_MT_shelf_button_context(bpy.types.Menu):
     """Right-click menu for a single shelf button (viewport overlay, not the
     Preferences list). Relies on the caller having already pointed the
@@ -975,6 +1004,7 @@ class BLENDERSHELF_MT_shelf_button_context(bpy.types.Menu):
         # and it deletes immediately (confirmed live: this exact symptom).
         layout.operator_context = 'INVOKE_DEFAULT'
         layout.operator("blender_shelf.start_move_button", text="Move", icon='ARROW_LEFTRIGHT').target = 'SHELF'
+        layout.operator("blender_shelf.add_separator", text="Add Separator", icon='REMOVE').target = 'SHELF'
         layout.separator()
         layout.operator("blender_shelf.pref_remove_button", text="Delete", icon='TRASH').target = 'SHELF'
 
@@ -1216,14 +1246,37 @@ class BLENDERSHELF_OT_pref_preset_position(bpy.types.Operator):
         prefs = get_prefs()
         items = _enabled_items()
         total_slots = _total_slots(items)
-        # _panel_size() involves _btn_size()/_pad_size(), which are floats
-        # once shelf_scale isn't a whole number -- round before assigning to
-        # top_margin/right_margin, both IntProperty (a bare float raises).
-        panel_w, panel_h = _panel_size(total_slots, _is_vertical())
+        # _panel_size() involves _btn_size()/_pad_size(), which are floats --
+        # top_margin is an IntProperty (a bare float raises), left_margin_pct
+        # is a fraction of region.width so it survives a resize/split.
+        vertical = _is_vertical()
+        panel_w, panel_h = _panel_size(total_slots, vertical)
 
-        prefs.right_margin = max(0, round((region.width - panel_w) / 2))
+        center_x = max(0.0, (region.width - panel_w) / 2.0)
+        left_px = center_x if vertical else max(0.0, center_x - _aux_reserve())
+        prefs.left_margin_pct = max(0.0, min(1.0, left_px / region.width)) if region.width else 0.0
         prefs.top_margin = PRESET_EDGE_MARGIN + _min_top_margin()
 
+        _tag_viewports_redraw()
+        _save_prefs()
+        return {'FINISHED'}
+
+
+class BLENDERSHELF_OT_reset_appearance(bpy.types.Operator):
+    """Reset colors and icon opacity to their defaults -- size, margins and
+    label placement are untouched"""
+    bl_idname = "blender_shelf.reset_appearance"
+    bl_label = "Reset Colors to Default"
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        prefs = get_prefs()
+        if prefs is None:
+            return {'CANCELLED'}
+        for prop in ("label_color", "btn_color", "bg_color", "separator_color", "icon_opacity"):
+            prefs.property_unset(prop)
         _tag_viewports_redraw()
         _save_prefs()
         return {'FINISHED'}
@@ -1466,6 +1519,9 @@ class BLENDERSHELF_UL_buttons(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         row = layout.row(align=True)
         row.prop(item, "enabled", text="")
+        if item.is_separator:
+            row.label(text=f"──── {item.label or 'Separator'} ────")
+            return
         row.prop(item, "label", text="", emboss=False)
 
 
@@ -1503,8 +1559,11 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
         update=lambda self, context: _on_prefs_changed())
     top_margin: bpy.props.IntProperty(name="Top Margin", default=DEFAULT_TOP_MARGIN, min=0,
                                        update=lambda self, context: _on_prefs_changed())
-    right_margin: bpy.props.IntProperty(name="Right Margin", default=DEFAULT_RIGHT_MARGIN, min=0,
-                                         update=lambda self, context: _on_prefs_changed())
+    left_margin_pct: bpy.props.FloatProperty(
+        name="Left Margin", default=DEFAULT_LEFT_MARGIN_PCT, min=0.0, max=1.0, subtype='FACTOR',
+        description="Distance from the viewport's left edge, as a fraction of its width -- "
+                    "stays in the same relative spot when the viewport is resized or split",
+        update=lambda self, context: _on_prefs_changed())
     label_font_size: bpy.props.IntProperty(name="Label Font Size", default=8, min=5, max=16,
                                             update=lambda self, context: _on_prefs_changed())
     shelf_scale: bpy.props.FloatProperty(name="Shelf Size", default=1.0, min=0.5, max=3.0, subtype='FACTOR',
@@ -1522,6 +1581,10 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
     bg_color: bpy.props.FloatVectorProperty(
         name="Background Color", subtype='COLOR', size=4,
         default=(0.32777780294418335, 0.32777780294418335, 0.32777780294418335, 0.5685714483261108),
+        min=0.0, max=1.0, update=lambda self, context: _on_prefs_changed())
+    separator_color: bpy.props.FloatVectorProperty(
+        name="Separator Color", subtype='COLOR', size=4,
+        default=(1.0, 1.0, 1.0, 0.4),
         min=0.0, max=1.0, update=lambda self, context: _on_prefs_changed())
     show_label: bpy.props.BoolProperty(name="Show Label", default=True,
                                         update=lambda self, context: _on_prefs_changed())
@@ -1596,7 +1659,7 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
                 panel.row().operator("blender_shelf.pref_preset_position")
                 row = panel.row()
                 row.prop(self, "top_margin")
-                row.prop(self, "right_margin")
+                row.prop(self, "left_margin_pct", slider=True)
                 panel.row().prop(self, "shelf_scale", slider=True)
                 panel.row().prop(self, "icon_opacity", slider=True)
 
@@ -1605,12 +1668,15 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
                 row = label_box.row()
                 row.prop(self, "show_label")
                 row.prop(self, "label_font_size")
-                label_box.prop(self, "label_color")
                 label_box.row().prop(self, "label_placement", expand=True)
 
                 row = panel.row()
+                row.prop(self, "label_color")
                 row.prop(self, "btn_color")
                 row.prop(self, "bg_color")
+                row.prop(self, "separator_color")
+                panel.row().operator("blender_shelf.reset_appearance", icon='LOOP_BACK')
+
                 row = panel.row()
                 row.prop(self, "show_number")
                 row.prop(self, "show_export_button")
@@ -1719,6 +1785,9 @@ def _draw_button_list(layout, prefs, target, show_pie_flag=False):
     if 0 <= idx < len(coll):
         item = coll[idx]
         box = layout.box()
+        if item.is_separator:
+            box.prop(item, "label", text="Separator Label")
+            return
         if show_pie_flag:
             box.prop(item, "show_in_pie")
         box.prop(item, "label")
@@ -2196,25 +2265,54 @@ def _panel_size(n, vertical):
     return pad * 2 + n * btn + (n - 1) * pad, btn + pad * 2
 
 
+def _sidebar_bounds(area, window_region):
+    # The Toolbar (T) and Sidebar (N) are overlays drawn on top of the
+    # viewport's own WINDOW region -- they don't shrink it, so region.width
+    # alone can't tell us they're there. Read their real rects directly so
+    # the shelf can stay clear of them instead of rendering underneath.
+    left, right = 0.0, float(window_region.width)
+    if area is None:
+        return left, right
+    for r in area.regions:
+        if r.width <= 1:
+            continue  # collapsed/closed
+        rel_x0 = r.x - window_region.x
+        if r.type == 'TOOLS':
+            left = max(left, rel_x0 + r.width)
+        elif r.type == 'UI':
+            right = min(right, rel_x0)
+    return left, right
+
+
 def shelf_geometry(region):
     items = _enabled_items()
-    top_margin, right_margin = _position()
+    top_margin, left_margin = _position(region)
     show_fbx = _export_button_enabled()
     total_slots = _total_slots(items)
     vertical = _is_vertical()
     panel_w, panel_h = _panel_size(total_slots, vertical)
     btn, pad = _btn_size(), _pad_size()
-    x = region.width - right_margin - panel_w
-    y = region.height - top_margin - panel_h
-    # keep the panel (and the orientation/drag group stacked beyond it) fully
-    # on screen even if the viewport shrinks a lot: the group sits to the
-    # left of the panel in horizontal mode, above it in vertical mode.
+    # Anchored from the left/top edges now (not right), so the aux group
+    # (orientation toggle + drag handle) sits at a fixed screen position and
+    # the panel grows/shrinks away from it as buttons are added/removed --
+    # previously the panel was right-anchored while aux derived from its
+    # (moving) left edge, so aux drifted every time the button count changed
+    # in horizontal mode (confirmed live, 2026-09-26; vertical mode was
+    # unaffected since its panel width doesn't depend on button count).
     reserve = _aux_reserve()
+    edge_left, edge_right = _sidebar_bounds(bpy.context.area, region)
+    y = region.height - top_margin - panel_h
     if vertical:
-        x = max(0.0, min(x, max(0.0, region.width - panel_w)))
+        x = left_margin
+        lo = max(0.0, edge_left)
+        hi = max(lo, min(region.width, edge_right) - panel_w)
+        x = max(lo, min(x, hi))
         y = max(0.0, min(y, max(0.0, region.height - panel_h - reserve)))
     else:
-        x = max(reserve, min(x, max(reserve, region.width - panel_w)))
+        x = left_margin + reserve
+        lo = max(reserve, edge_left + reserve)
+        hi = max(lo, min(region.width, edge_right) - panel_w)
+        x = max(lo, min(x, hi))
         y = max(0.0, min(y, max(0.0, region.height - panel_h)))
     # FBX (when shown) takes slot 0. In vertical it's simply the topmost
     # slot beyond the highest item index, so item rects need no shift; in
@@ -2463,6 +2561,19 @@ def _draw_tooltip(shader, region, text, mx, my):
     blf.draw(font_id, text)
 
 
+def _draw_separator_bar(shader, x0, y0, x1, y1, color):
+    # a thin divider centered in its slot, perpendicular to the shelf's
+    # layout direction -- the slot's own empty space around it is what
+    # reads as "small margins", no separate narrow-slot geometry needed.
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    if _is_vertical():
+        bar_w = (x1 - x0) * 0.6
+        _round_quad(shader, cx - bar_w / 2.0, cy - 1.5, cx + bar_w / 2.0, cy + 1.5, color, 1.5)
+    else:
+        bar_h = (y1 - y0) * 0.6
+        _round_quad(shader, cx - 1.5, cy - bar_h / 2.0, cx + 1.5, cy + bar_h / 2.0, color, 1.5)
+
+
 def draw_shelf():
     region = bpy.context.region
     if region is None:
@@ -2499,6 +2610,12 @@ def draw_shelf():
                 dim = (btn_normal[0], btn_normal[1], btn_normal[2], btn_normal[3] * 0.25)
                 _round_quad(color_shader, x0, y0, x1, y1, dim, BTN_RADIUS)
                 continue
+            if btn.is_separator:
+                if i == _pressed_index or i == _hover_index:
+                    _round_quad(color_shader, x0, y0, x1, y1, (1.0, 1.0, 1.0, 0.12), BTN_RADIUS)
+                _draw_separator_bar(color_shader, x0, y0, x1, y1,
+                                     tuple(prefs.separator_color) if prefs else (1.0, 1.0, 1.0, 0.4))
+                continue
             if i == _pressed_index:
                 bg = btn_pressed
             elif i == _hover_index:
@@ -2527,15 +2644,19 @@ def draw_shelf():
             gx0, gy0 = _mouse_x - half, _mouse_y - half
             gx1, gy1 = _mouse_x + half, _mouse_y + half
             _round_quad(color_shader, gx0, gy0, gx1, gy1, btn_pressed, BTN_RADIUS)
-            ghost_tex = _get_icon_texture(moving_btn.icon_path)
-            if ghost_tex is not None:
-                verts = ((gx0, gy0), (gx1, gy0), (gx1, gy1), (gx0, gy1))
-                uvs = ((0, 0), (1, 0), (1, 1), (0, 1))
-                batch = batch_for_shader(image_shader, 'TRI_FAN', {"pos": verts, "texCoord": uvs})
-                image_shader.bind()
-                image_shader.uniform_sampler("image", ghost_tex)
-                image_shader.uniform_float("color", icon_color)
-                batch.draw(image_shader)
+            if moving_btn.is_separator:
+                _draw_separator_bar(color_shader, gx0, gy0, gx1, gy1,
+                                     tuple(prefs.separator_color) if prefs else (1.0, 1.0, 1.0, 0.4))
+            else:
+                ghost_tex = _get_icon_texture(moving_btn.icon_path)
+                if ghost_tex is not None:
+                    verts = ((gx0, gy0), (gx1, gy0), (gx1, gy1), (gx0, gy1))
+                    uvs = ((0, 0), (1, 0), (1, 1), (0, 1))
+                    batch = batch_for_shader(image_shader, 'TRI_FAN', {"pos": verts, "texCoord": uvs})
+                    image_shader.bind()
+                    image_shader.uniform_sampler("image", ghost_tex)
+                    image_shader.uniform_float("color", icon_color)
+                    batch.draw(image_shader)
             _border(color_shader, gx0, gy0, gx1, gy1, PRESSED_BORDER, t=1)
 
             if _move_insert_gap is not None and rects:
@@ -2599,7 +2720,7 @@ def draw_shelf():
         blf.color(font_id, 1, 1, 1, 0.9)
         blf.size(font_id, 11)
         for i, (x0, y0, x1, y1) in enumerate(rects):
-            if i == moving_slot_i:
+            if i == moving_slot_i or items[i].is_separator:
                 continue
             blf.position(font_id, x0 + 2, y1 - 13, 0)
             blf.draw(font_id, str(i + 1))
@@ -2612,7 +2733,7 @@ def draw_shelf():
         blf.color(font_id, *label_color)
         line_h = label_font_size + 2
         for i, (x0, y0, x1, y1) in enumerate(rects):
-            if i == moving_slot_i:
+            if i == moving_slot_i or items[i].is_separator:
                 continue
             lines = _wrap_label(font_id, items[i].label, (x1 - x0) - 4)
             n = len(lines)
@@ -2695,7 +2816,8 @@ _drag_hover = False
 _dragging_shelf = False
 _drag_start_mouse = (0.0, 0.0)
 _drag_start_margins = (0.0, 0.0)
-_drag_live_margins = None  # (top_margin, right_margin) while dragging, else None
+_drag_live_margins = None  # (top_margin_px, left_margin_px) while dragging, else None
+_drag_region_width = 1.0  # region.width captured at drag-start, for px<->fraction conversion
 _mouse_x = 0
 _mouse_y = 0
 _last_screen_ptr = None  # win.screen.as_pointer() as of the last _start_modal
@@ -2717,7 +2839,7 @@ class BLENDERSHELF_OT_modal(bpy.types.Operator):
     def modal(self, context, event):
         global _modal_running, _hover_index, _pressed_index, _mouse_x, _mouse_y
         global _export_hover, _export_pressed, _orient_hover, _drag_hover
-        global _dragging_shelf, _drag_start_mouse, _drag_start_margins, _drag_live_margins
+        global _dragging_shelf, _drag_start_mouse, _drag_start_margins, _drag_live_margins, _drag_region_width
         global _last_alive, _restart_requested
         global _moving_index, _move_insert_gap
         _last_alive = time.time()  # proof of life, independent of _modal_running
@@ -2754,8 +2876,8 @@ class BLENDERSHELF_OT_modal(bpy.types.Operator):
                 _mouse_x, _mouse_y = mx, my
                 dx = mx - _drag_start_mouse[0]
                 dy = my - _drag_start_mouse[1]
-                start_top, start_right = _drag_start_margins
-                _drag_live_margins = (max(0.0, start_top - dy), max(0.0, start_right - dx))
+                start_top, start_left = _drag_start_margins
+                _drag_live_margins = (max(0.0, start_top - dy), max(0.0, start_left + dx))
                 if context.area:
                     context.area.tag_redraw()
                 return {'RUNNING_MODAL'}  # consume the drag, don't also orbit/pan the viewport
@@ -2874,7 +2996,8 @@ class BLENDERSHELF_OT_modal(bpy.types.Operator):
                 if gx0 <= mx <= gx1 and gy0 <= my <= gy1:
                     _dragging_shelf = True
                     _drag_start_mouse = (mx, my)
-                    _drag_start_margins = _position()
+                    _drag_region_width = context.region.width
+                    _drag_start_margins = _position(context.region)
                     _drag_live_margins = _drag_start_margins
                     for area in context.screen.areas:
                         if area.type == 'VIEW_3D':
@@ -2887,9 +3010,10 @@ class BLENDERSHELF_OT_modal(bpy.types.Operator):
             _dragging_shelf = False
             prefs = get_prefs()
             if prefs is not None and _drag_live_margins is not None:
-                top, right = _drag_live_margins
+                top, left_px = _drag_live_margins
                 prefs.top_margin = round(top)  # IntProperty -- rejects a bare float
-                prefs.right_margin = round(right)  # property update= callback handles redraw + save
+                if _drag_region_width:
+                    prefs.left_margin_pct = max(0.0, min(1.0, left_px / _drag_region_width))
             _drag_live_margins = None
             for area in context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -3009,12 +3133,14 @@ classes = (
     BLENDERSHELF_OT_pref_remove,
     BLENDERSHELF_OT_pref_move,
     BLENDERSHELF_OT_start_move_button,
+    BLENDERSHELF_OT_add_separator,
     BLENDERSHELF_MT_shelf_button_context,
     BLENDERSHELF_OT_copy_button,
     BLENDERSHELF_OT_edit_script,
     BLENDERSHELF_OT_apply_script,
     BLENDERSHELF_OT_edit_params,
     BLENDERSHELF_OT_pref_preset_position,
+    BLENDERSHELF_OT_reset_appearance,
     BLENDERSHELF_OT_pick_icon,
     BLENDERSHELF_OT_check_update,
     BLENDERSHELF_OT_export_settings,
