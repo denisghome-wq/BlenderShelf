@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BlenderShelf",
     "author": "DenisZakharov",
-    "version": (0, 1, 3),
+    "version": (0, 1, 4),
     "blender": (4, 1, 0),
     "location": "3D Viewport, floating overlay near the top edge",
     "description": "A floating shelf of custom buttons in the 3D viewport (Maya-shelf style)",
@@ -357,13 +357,34 @@ def _enum_menu_label_and_command(op_id, op, prop_name):
 # fall through to the menu-scan/fuzzy tiers instead.
 _TYPE_ICON_PREFIX = {
     "object.modifier_add": "MOD_",
+    "object.light_add": "LIGHT_",
+    "object.lightprobe_add": "LIGHTPROBE_",
+    "object.effector_add": "FORCE_",
+}
+
+# A handful of (op_id, type-value) pairs where the icon file uses an older/
+# different word for the same enum value than {prefix}{type_id}.png would
+# produce -- checked before the plain prefix concatenation above.
+_TYPE_ICON_VALUE_OVERRIDES = {
+    ("object.lightprobe_add", "SPHERE"): "LIGHTPROBE_CUBEMAP",
+    ("object.lightprobe_add", "PLANE"): "LIGHTPROBE_PLANAR",
+    ("object.lightprobe_add", "VOLUME"): "LIGHTPROBE_GRID",
+    ("object.effector_add", "MAGNET"): "FORCE_MAGNETIC",
+    ("object.effector_add", "LENNARDJ"): "FORCE_LENNARDJONES",
 }
 
 
 def _icon_from_type_prop(op_id, op):
-    prefix = _TYPE_ICON_PREFIX.get(op_id)
-    type_id = getattr(op, "type", None) if prefix else None
+    type_id = getattr(op, "type", None)
     if not type_id:
+        return None
+    override = _TYPE_ICON_VALUE_OVERRIDES.get((op_id, type_id))
+    if override:
+        candidate = os.path.join(BLENDER_ICON_DIR, f"{override}.png")
+        if os.path.exists(candidate):
+            return candidate
+    prefix = _TYPE_ICON_PREFIX.get(op_id)
+    if not prefix:
         return None
     candidate = os.path.join(BLENDER_ICON_DIR, f"{prefix}{type_id}.png")
     return candidate if os.path.exists(candidate) else None
@@ -693,6 +714,7 @@ def _config_to_dict(prefs):
         "right_margin": prefs.right_margin,
         "label_font_size": prefs.label_font_size,
         "shelf_scale": prefs.shelf_scale,
+        "icon_opacity": prefs.icon_opacity,
         "label_color": list(prefs.label_color),
         "btn_color": list(prefs.btn_color),
         "bg_color": list(prefs.bg_color),
@@ -763,6 +785,7 @@ def _load_config_from_path(prefs, path):
     prefs.right_margin = data.get("right_margin", DEFAULT_RIGHT_MARGIN)
     prefs.label_font_size = data.get("label_font_size", 7)
     prefs.shelf_scale = data.get("shelf_scale", 1.0)
+    prefs.icon_opacity = data.get("icon_opacity", 1.0)
     prefs.label_color = data.get("label_color", [1.0, 1.0, 1.0, 0.9])
     prefs.btn_color = data.get("btn_color", [0.32, 0.32, 0.32, 1.0])
     prefs.bg_color = data.get("bg_color", [0.10, 0.10, 0.10, 0.9])
@@ -1486,6 +1509,8 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
                                             update=lambda self, context: _on_prefs_changed())
     shelf_scale: bpy.props.FloatProperty(name="Shelf Size", default=1.0, min=0.5, max=3.0, subtype='FACTOR',
                                           update=lambda self, context: _on_prefs_changed())
+    icon_opacity: bpy.props.FloatProperty(name="Icon Opacity", default=1.0, min=0.0, max=1.0, subtype='FACTOR',
+                                           update=lambda self, context: _on_prefs_changed())
     label_color: bpy.props.FloatVectorProperty(
         name="Label Color", subtype='COLOR', size=4,
         default=(0.8713645935058594, 0.672469973564148, 0.11010005325078964, 0.8999999761581421),
@@ -1573,6 +1598,7 @@ class BlenderShelfPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "top_margin")
                 row.prop(self, "right_margin")
                 panel.row().prop(self, "shelf_scale", slider=True)
+                panel.row().prop(self, "icon_opacity", slider=True)
 
                 label_box = panel.box()
                 label_box.label(text="Label")
@@ -2444,13 +2470,14 @@ def draw_shelf():
     items = _enabled_items()
 
     color_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    image_shader = gpu.shader.from_builtin('IMAGE')
+    image_shader = gpu.shader.from_builtin('IMAGE_COLOR')
     gpu.state.blend_set('ALPHA')
 
     prefs = get_prefs()
     bg_color = tuple(prefs.bg_color) if prefs else DEFAULT_BG_COLOR
     btn_normal, btn_hover, btn_pressed = _button_colors()
     show_export_button = prefs.show_export_button if prefs else True
+    icon_color = (1.0, 1.0, 1.0, prefs.icon_opacity if prefs else 1.0)
 
     rects = []
     draw_panel = _should_draw_shelf()
@@ -2487,6 +2514,7 @@ def draw_shelf():
                 batch = batch_for_shader(image_shader, 'TRI_FAN', {"pos": verts, "texCoord": uvs})
                 image_shader.bind()
                 image_shader.uniform_sampler("image", tex)
+                image_shader.uniform_float("color", icon_color)
                 batch.draw(image_shader)
 
             if i == _pressed_index:
@@ -2506,6 +2534,7 @@ def draw_shelf():
                 batch = batch_for_shader(image_shader, 'TRI_FAN', {"pos": verts, "texCoord": uvs})
                 image_shader.bind()
                 image_shader.uniform_sampler("image", ghost_tex)
+                image_shader.uniform_float("color", icon_color)
                 batch.draw(image_shader)
             _border(color_shader, gx0, gy0, gx1, gy1, PRESSED_BORDER, t=1)
 
