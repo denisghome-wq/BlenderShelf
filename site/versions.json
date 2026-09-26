@@ -1,3 +1,4 @@
 [
-  { "addon_version": "0.1.0", "blender_min": "4.1.0", "blender_max": null, "url": "https://github.com/blendershelf/BlenderShelf/releases/download/v0.1.0/BlenderShelf.zip" }
+  { "addon_version": "0.1.0", "blender_min": "4.1.0", "blender_max": null, "url": "https://github.com/blendershelf/BlenderShelf/releases/download/v0.1.0/BlenderShelf.zip" },
+  { "addon_version": "0.1.1", "blender_min": "4.1.0", "blender_max": null, "url": "https://github.com/blendershelf/BlenderShelf/releases/download/v0.1.1/BlenderShelf.zip" }
 ]
